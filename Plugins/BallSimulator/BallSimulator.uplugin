@@ -1,0 +1,24 @@
+{
+	"FileVersion": 3,
+	"Version": 1,
+	"VersionName": "1.0",
+	"FriendlyName": "BallSimulator",
+	"Description": "A physics-based ballistic simulation with playback support.",
+	"Category": "Physics",
+	"CreatedBy": "taru00@gmail.com",
+	"CreatedByURL": "https://x.com/3devnote",
+	"DocsURL": "https://medium.com/@3devnote",
+	"MarketplaceURL": "",
+	"SupportURL": "",
+	"CanContainContent": true,
+	"IsBetaVersion": false,
+	"IsExperimentalVersion": false,
+	"Installed": false,
+	"Modules": [
+		{
+			"Name": "BallSimulator",
+			"Type": "Runtime",
+			"LoadingPhase": "Default"
+		}
+	]
+}

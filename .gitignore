@@ -1,0 +1,9 @@
+﻿*.target
+*.modules
+*.pdb
+Binaries/Win64/UE4Editor-BallSimulatorDemo.dll
+*.log
+*.log
+Intermediate
+Saved
+Plugins/BallSimulator/Binaries
