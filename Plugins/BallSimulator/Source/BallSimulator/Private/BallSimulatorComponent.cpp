@@ -5,6 +5,9 @@
 #include "PhysicalMaterials/PhysicalMaterial.h"
 #include "CollisionShape.h"
 
+DECLARE_LOG_CATEGORY_EXTERN(LogBallSimulatorComponent, Log, All);
+DEFINE_LOG_CATEGORY(LogBallSimulatorComponent);
+
 // Sets default values for this component's properties
 UBallSimulatorComponent::UBallSimulatorComponent()
 {	
@@ -34,9 +37,9 @@ void UBallSimulatorComponent::SimulateBallPhysics(
 	const float InitialSpinSpeed,
 	const int32 SimulationSteps,
 	const float StepInterval)
-{
-	SCOPE_CYCLE_COUNTER(STAT_BallPhysicsSimulation);
-		
+{	
+	TRACE_CPUPROFILER_EVENT_SCOPE(UBallSimulatorComponent::SimulateBallPhysics);
+
 	UWorld* World = WorldContextObject ? WorldContextObject->GetWorld() : nullptr;
 	if (!World) return;
 
@@ -139,8 +142,8 @@ int UBallSimulatorComponent::HandleCollision(
 	FVector& angularVelocity,	
 	const float DeltaTime,
 	int32 Depth)
-{
-	SCOPE_CYCLE_COUNTER(STAT_HandleCollision);
+{	
+	TRACE_CPUPROFILER_EVENT_SCOPE(UBallSimulatorComponent::HandleCollision);
 
 	// SubStep 정지 조건
 	if (Depth > 10 || DeltaTime <= KINDA_SMALL_NUMBER) return Depth;	
@@ -203,7 +206,7 @@ int UBallSimulatorComponent::HandleCollision(
 		}
 
 		// 마찰로 인한 감쇠. 마찰이 크면 접선 속도는 작아진다.
-		float frictionScale = FMath::Clamp(1.0f - Friction, 0.f, 1.0f);
+		//float frictionScale = FMath::Clamp(1.0f - Friction, 0.f, 1.0f);
 		
 		// 접촉점 P 에서 구 질량중심 C 로 가는 벡터 (접촉점 - 구 중심) r = P - C
 		const FVector r = hit.ImpactPoint - pos;
@@ -304,9 +307,8 @@ int UBallSimulatorComponent::HandleCollision(
 			//angularVelocity *= 0.5f;
 
 			// 디버그용 출력 또는 로그
-			UE_LOG(LogTemp, Verbose, TEXT("Penetration resolved: depth = %.3f, push = %s"), hit.PenetrationDepth, *PenetrationDirection.ToString());
+			UE_LOG(LogBallSimulatorComponent, Verbose, TEXT("Penetration resolved: depth = %.3f, push = %s"), hit.PenetrationDepth, *PenetrationDirection.ToString());
 		}
-
 
 		// 남은 시간으로 재귀 호출
 		float remainingTime = DeltaTime - timeToHit;
@@ -325,7 +327,7 @@ void UBallSimulatorComponent::ConvertSnapshotsToBezierSpline(
 {
 	if (!SplineComponent || Snapshots.Num() < 2)
 	{
-		UE_LOG(LogTemp, Warning, TEXT("Invalid SplineComponent or insufficient snapshot count"));
+		UE_LOG(LogBallSimulatorComponent, Warning, TEXT("Invalid SplineComponent or insufficient snapshot count"));
 		return;
 	}
 
@@ -452,7 +454,8 @@ bool UBallSimulatorComponent::GetBallPositionAndRotationAtSplineTime(
 void UBallSimulatorComponent::GetBallPositionAndRotationAtTime(
 	float playbackTime,
 	FVector& OutPosition,
-	FRotator& OutRotation) const
+	FRotator& OutRotation,
+	int32& OutIndexA, int32& OutIndexB) const
 {
 	if (CachedSnapshots.Num() < 2 || SimulationStepInterval <= 0.f)
 	{
@@ -466,6 +469,9 @@ void UBallSimulatorComponent::GetBallPositionAndRotationAtTime(
 	int32 IndexA = FMath::Clamp(FMath::FloorToInt(ClampedTime / SimulationStepInterval), 0, CachedSnapshots.Num() - 2);
 	int32 IndexB = IndexA + 1;
 	float LocalAlpha = (ClampedTime - IndexA * SimulationStepInterval) / SimulationStepInterval;
+
+	OutIndexA = IndexA;
+	OutIndexB = IndexB;
 
 	// 위치 보간
 	FVector PosA = CachedSnapshots[IndexA].Position;

@@ -134,7 +134,8 @@ public:
     void GetBallPositionAndRotationAtTime(
         float playbackTime,
         FVector& OutPosition,
-        FRotator& OutRotation) const;
+        FRotator& OutRotation,
+		int32& IndexA, int32& IndexB) const;
 
     UFUNCTION(BlueprintCallable, Category = "Ballistic Physics Simulator")
     bool GetBallPositionAndRotationAtSplineTime(
