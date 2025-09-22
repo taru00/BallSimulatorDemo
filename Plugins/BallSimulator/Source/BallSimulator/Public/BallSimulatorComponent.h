@@ -30,15 +30,40 @@ struct FBallBounce
 
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
     float BouncedSpeed;
+    
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+    bool bWasStuck;
 
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+    bool bIsSliding;
+    
+    UPROPERTY(BlueprintReadOnly)
     FHitResult Hit;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+    FVector StartPos;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+    FVector ImpactPoint;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+    float hitTimeRatio;
+
+    // 이번 충돌에 대한 반사 후 추가 충돌이 없을때 사용될 NextPos 후보
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+    FVector NextPos;
+    
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+    float timeToHit;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+    float RemainingTime;
 
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
     float vRel;
 
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
-    FVector LinearDelta;
+    FVector LinearImpulse;
 
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
     FVector AngularDelta;
@@ -54,6 +79,9 @@ USTRUCT(BlueprintType)
 struct FBallSnapshot
 {
     GENERATED_BODY()
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadWrite)
+    float Time;
 
     UPROPERTY(VisibleAnywhere, BlueprintReadWrite)
     FVector Position;
@@ -75,6 +103,11 @@ struct FBallSnapshot
     // SpinAxis * SpinSpeed
     //UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
     //FVector AngularVelocity;
+    UPROPERTY(VisibleAnywhere, BlueprintReadWrite)
+    int hitCount;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadWrite)
+    int BounceIndex;
 
     UPROPERTY(VisibleAnywhere, BlueprintReadWrite)
     FVector SpinAxis;
@@ -125,10 +158,10 @@ public:
         const float DeltaTime,
         int32 Depth);
 
+    //bool ResolvePenetration(const FVector& ProposedAdjustment, const FHitResult& Hit, const FQuat& NewRotationQuat);
+
     UFUNCTION(BlueprintCallable, Category = "Ballistic Physics Simulator")
-    void ConvertSnapshotsToBezierSpline(        
-        const TArray<FBallSnapshot>& Snapshots,
-        USplineComponent* SplineComponent) const;
+    void ConvertSnapshotsToBezierSpline(const TArray<FBallSnapshot>& Snapshots, USplineComponent* SplineComponent) const;    
 
     UFUNCTION(BlueprintCallable, Category = "Ballistic Physics Simulator")
     void GetBallPositionAndRotationAtTime(
@@ -155,29 +188,35 @@ public:
     float MinSpeed = 1.0f;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ballistic Physics Simulator")
-    float MinSpin = 0.1f;
+    float MinSpinForMagnus = 10.f;
 
     // 중력 기본값 -980 cm/s²
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ballistic Physics Simulator")
-    FVector GravityVector = FVector(0, 0, -980.0f);
+    FVector GravityVector = FVector(0, 0, -1200.0f);
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ballistic Physics Simulator")
-    float SpinMagnusFactor = 0.01f;
+    float SpinMagnusFactor = 0.005f;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ballistic Physics Simulator")
-    float LinearDamping = 0.01f;
+    float LinearDamping = 0.02f;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ballistic Physics Simulator")
-    float AngularDamping = 0.01f;
+    float AngularDamping = 0.02f;
 
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Ballistic Physics Simulator")
     TArray<FBallSnapshot> CachedSnapshots;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Ballistic Physics Simulator")
+    TArray<FBallBounce> CachedHits;
 
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Ballistic Physics Simulator")
     TArray<FBallBounce> CachedBounces;
 
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Ballistic Physics Simulator")
     float SimulationStepInterval = 0.0f; 
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Ballistic Physics Simulator")    
+    float PullBackDistance = 0.01f;
 
     // 축구공 반지름 : 약 11 cm
     //UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ballistic Physics Simulator")
@@ -222,8 +261,15 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Ballistic Physics Simulator")
     float BounceThreshold = 50.f;   
 
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Ballistic Physics Simulator")
+    bool bBounceAngleAffectsFriction;
 
-    
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Ballistic Physics Simulator")
+    float MinFrictionFraction;
+
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Ballistic Physics Simulator")
+	float MaxAllowedSpeed = 10000.f;
+
     // Damping 만으로 단순화 가능
     //UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Ballistic Physics Simulator")
     //float CD = 0.5f;           // 항력 계수(튜닝)
