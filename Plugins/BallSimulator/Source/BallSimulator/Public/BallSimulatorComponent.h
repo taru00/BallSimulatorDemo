@@ -26,11 +26,17 @@ struct FBallBounce
     float Speed;
 
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+    float Spin;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
     FVector BouncedDirection;
 
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
     float BouncedSpeed;
     
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+    float BouncedSpin;   
+
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
     bool bWasStuck;
 
@@ -72,6 +78,9 @@ struct FBallBounce
     FVector AngularDelta;
 
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+    float AngularDeltaSize;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
     FVector FrictionDelta;
 
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
@@ -83,6 +92,7 @@ struct FBallSnapshot
 {
     GENERATED_BODY()
 
+	// 디버깅 편의를 위해 저장된 시간값 (고정 프레임율 이므로 시간 간격은 일정함)
     UPROPERTY(VisibleAnywhere, BlueprintReadWrite)
     float Time;
 
@@ -160,7 +170,7 @@ public:
         FVector& AngularVelocity,        
         const float DeltaTime,
         int32 Depth);
-
+    
     //bool ResolvePenetration(const FVector& ProposedAdjustment, const FHitResult& Hit, const FQuat& NewRotationQuat);
 
     UFUNCTION(BlueprintCallable, Category = "Ballistic Physics Simulator")
@@ -187,36 +197,42 @@ public:
     void GetBallVelocityAtTime(float playbackTime, FVector& LinearVelocity,
         FVector& AngularVeloticy) const;
 
+	// 최소 속도 이하로 떨어지면 시뮬레이션 종료
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ballistic Physics Simulator")
     float MinSpeed = 1.0f;
 
+	// 최소 스핀 이하로 떨어지면 마그누스 효과 미적용
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ballistic Physics Simulator")
     float MinSpinForMagnus = 10.f;
 
     // 중력 기본값 -980 cm/s²
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ballistic Physics Simulator")
-    FVector GravityVector = FVector(0, 0, -1200.0f);
+    FVector GravityVector = FVector(0, 0, -980.0f);
 
+    // 강한 스핀에 의한 횡력 조절 (감아차기 효과)
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ballistic Physics Simulator")
-    float SpinMagnusFactor = 0.005f;
+    float SpinMagnusFactor = 0.01f;
 
+	// 공기 저항 계수 (1.0 이면 100%)
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ballistic Physics Simulator")
     float LinearDamping = 0.02f;
 
+	// 회전 저항 계수 (1.0 이면 100%)
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ballistic Physics Simulator")
     float AngularDamping = 0.02f;
 
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Ballistic Physics Simulator")
     TArray<FBallSnapshot> CachedSnapshots;
-
+	
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Ballistic Physics Simulator")
     TArray<FBallBounce> CachedHits;
 
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Ballistic Physics Simulator")
     TArray<FBallBounce> CachedBounces;
-
+    
+	// 시뮬레이션 스텝 시간 간격 (0.033 = 30Hz)
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Ballistic Physics Simulator")
-    float SimulationStepInterval = 0.0f; 
+    float SimulationStepInterval = 0.033f; 
 
     // 축구공 반지름 : 약 11 cm
     //UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ballistic Physics Simulator")
@@ -225,48 +241,54 @@ public:
     UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category = "Ballistic Physics Simulator")
     float SimulationEndTime = 0.0f;
     
+	// 탄성 1.0 에 가까워 질수록 완전 탕성 운동에 가까워짐 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ballistic Physics Simulator")
     float DefaultRestitution = 0.6f;
 
+    // 이동에 대한 감속 계수	
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ballistic Physics Simulator")
     float DefaultFriction = 0.5f;
 
+	// 접촉시 회전 감속 계수
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ballistic Physics Simulator")
-    float SpinFriction = 0.05f;
+    float SpinFriction = 0.25f;
     
+    // 감속 계수에 의해서 자동 계산되는 내부 변수
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Ballistic Physics Simulator")
     float SpinFrictionScale = 0.95f;
     
+	// 관성 모멘트 텐서 스케일 (0.4 ~ 0.5 정도가 현실적인 축구공에 근접)
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ballistic Physics Simulator")
     FVector InertiaTensorScale = FVector(0.5f, 0.5f, 0.5f);
 
-    FVector InvInertiaTensor;
+	// InertiaTensorScale 값에 의해서 자동 계산되는 내부 변수
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Ballistic Physics Simulator")
-    FVector ScaledInertia = FVector(0.f, 0.f, 0.f);
+    FVector InvInertiaTensor;
 
-    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Ballistic Physics Simulator")
-    float BouncedSpinMultiply = 1.f;
+	// InertiaTensorScale 값에 의해서 자동 계산되는 내부 변수
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Ballistic Physics Simulator")
+    FVector ScaledInertia = FVector(0.f, 0.f, 0.f);   
 
+	// 접촉에 의해 발생되는 추가 회전력 튜닝
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Ballistic Physics Simulator")
     float SpinToRotateMultiply = 3.f;
 
+	// 충돌시 최대 선형 임펄스 제한
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ballistic Physics Simulator")
     float MaxAllowedImpulse = 1000.f;
 
+	// 최대 바운스 횟수 제한 (시뮬레이션 정지 조건)
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ballistic Physics Simulator")
     int MaxAllowedBounce = 5;
 
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Ballistic Physics Simulator")
     int BounceCount = 0;
 
+	// 법선 방향으로 프로젝트된 임펄스가 이 값 이하인 경우 접촉 상태에서의 슬라이딩 (Rolling Contact) 으로 간주
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Ballistic Physics Simulator")
     float BounceThreshold = 50.f;   
 
-    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Ballistic Physics Simulator")
-    bool bBounceAngleAffectsFriction;
-
-    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Ballistic Physics Simulator")
-    float MinFrictionFraction;
-
+	// 최대 허용 속도 
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Ballistic Physics Simulator")
 	float MaxAllowedSpeed = 10000.f;
 
@@ -276,9 +298,12 @@ public:
 
     //UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Ballistic Physics Simulator")
     //float Rho = 0.000001225f;   // 공기 밀도 1.225 kg·m⁻³  ( 1.225f / 1e6f kg·cm⁻³ ) 
+
+	// 슬라이딩 접촉 상태 확인용 내부 변수
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Ballistic Physics Simulator")
     float PreviousHitTime;
     
+    // 슬라이딩 접촉 상태 확인용 내부 변수
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Ballistic Physics Simulator")
     FVector PreviousHitNormal;
 

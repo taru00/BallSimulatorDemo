@@ -278,6 +278,7 @@ int UBallSimulatorComponent::HandleCollision(
 		FBallBounce HitCache;		
 		HitCache.Direction = linearVelocity.GetSafeNormal();
 		HitCache.Speed = linearVelocity.Size();
+		HitCache.Spin = angularVelocity.Size();
 		HitCache.StartPos = pos; // hit.TraceStart;
 		HitCache.ImpactPoint = hit.ImpactPoint;
 		HitCache.ImpactNormal = hit.ImpactNormal;
@@ -340,7 +341,7 @@ int UBallSimulatorComponent::HandleCollision(
 			pos = nextPos;
 			return Depth;
 		}
-
+		const float LVdotN = (linearVelocity.GetSafeNormal() | hit.ImpactNormal);
 		bool bIsSliding = false;
 		{
 			// 짧은 시간에 연속적으로 hit가 발생 중인가? 
@@ -349,21 +350,21 @@ int UBallSimulatorComponent::HandleCollision(
 			// if velocity still into wall (after HandleBlockingHit() had a chance to adjust), slide along wall
 			const float DotTolerance = 0.01f;
 			bIsSliding = (bMultiHit && FVector::Coincident(PreviousHitNormal, hit.ImpactNormal)) ||
-				((linearVelocity.GetSafeNormal() | hit.ImpactNormal) <= DotTolerance);
+				(LVdotN <= DotTolerance);
 
 			PreviousHitTime = hit.Time;
 			PreviousHitNormal = hit.ImpactNormal;
 
 			if (bIsSliding)
 			{
-				FVector ProjectedNormal = hit.ImpactNormal * -vRel;
-
+				// TBD
+				
+				//FVector ProjectedNormal = hit.ImpactNormal * -vRel;
 				// DotProduct(Delta, ProjectedNormal)
-				float dot = FVector::DotProduct(linearVelocity, ProjectedNormal);
-
-				// 평면 위로 사영된 벡터
-				FVector projectedVelocity = linearVelocity - dot * ProjectedNormal;
-
+				//float dot = FVector::DotProduct(linearVelocity, ProjectedNormal);
+				//// 평면 위로 사영된 벡터
+				//FVector projectedVelocity = linearVelocity - dot * ProjectedNormal;
+				
 				//// 위치 업데이트
 				//pos = pos + projectedVelocity * DeltaTime;
 				//return Depth;
@@ -413,13 +414,6 @@ int UBallSimulatorComponent::HandleCollision(
 			//return Depth;
 		}
 
-		// 각속도 업데이트
-		FVector angularImpulse = FVector::CrossProduct(r, impulse);
-		
-		FVector angularDelta = InvInertiaTensor * angularImpulse * BouncedSpinMultiply;
-		angularVelocity += angularDelta;
-		HitCache.AngularDelta = angularDelta;
-
 		// 쿠롱 마찰 임펄스 계산 (접선 방향 임펄스)
 		FVector tangentVelocity = ContactVelocity - vRel * hit.ImpactNormal;
 		if (!tangentVelocity.IsNearlyZero())
@@ -440,15 +434,19 @@ int UBallSimulatorComponent::HandleCollision(
 	
 			// 선형 속도 업데이트 (마찰 임펄스 적용)
 			linearVelocity += frictionImpulse * InvMass;
-			 
+			
+			// 각속도 업데이트 Δω = I⁻¹ * (r × J)			
 			FVector angularFrictionImpulse = FVector::CrossProduct(r, frictionImpulse);
-			FVector angularDeltaFriction = InvInertiaTensor * angularFrictionImpulse;
-			angularVelocity += angularDeltaFriction;
+			FVector angularDelta = InvInertiaTensor * angularFrictionImpulse;
+			angularVelocity += angularDelta;
+						
+			HitCache.AngularDelta = angularDelta;
+			HitCache.AngularDeltaSize = angularDelta.Size();
 		}
 
-		// 각속도 업데이트 (스핀 감쇠 적용)
-		angularVelocity *= SpinFrictionScale;		
-		
+		// 각속도 업데이트 (시간 간격에 따라 회전 속도 감소) - 시뮬레이션 루프에서 처리함
+		// angularVelocity *= FMath::Pow(SpinFrictionScale, timeToHit);
+
 		//const float PenetrationVelocityDamping = 0.5f;    // 감속 계수		
 		const float PenetrationDepthThreshold = 0.1f;     // 끼인 것으로 판단할 최소 깊이
 
@@ -456,24 +454,22 @@ int UBallSimulatorComponent::HandleCollision(
 		bool bIsStuck = hit.bStartPenetrating || hit.PenetrationDepth > PenetrationDepthThreshold;
 		if (bIsStuck)
 		{
+			// TBD - 재현 방법 및 동작 여부 확인 필요
+
 			HitCache.bWasStuck = bIsStuck;
 
 			//const float SmallMargin = KINDA_SMALL_NUMBER;         
 			const float SmallMargin = 0.01f;                  // 밀어낼 여유 마진
-			
+
 			// 침투 깊이만큼 푸시백
 			const FVector PenetrationDirection = hit.Normal.IsNearlyZero() ? FVector::UpVector : hit.Normal;
 			const float PushBack = hit.PenetrationDepth + SmallMargin; // 소량 여유 마진 추가
 			pos += PenetrationDirection * PushBack;
-
-			//// 속도 감쇠 (너무 튀지 않도록)
-			//linearVelocity *= 0.5f;
-			//angularVelocity *= 0.5f;
-
+			
 			// 디버그용 출력 또는 로그
 			UE_LOG(LogBallSimulatorComponent, Verbose, TEXT("Penetration resolved: depth = %.3f, push = %s"), hit.PenetrationDepth, *PenetrationDirection.ToString());
-		}				
-		
+		}
+
 		HitCache.NextPos = hit.Location + linearVelocity * remainingTime;
 		HitCache.hitTimeRatio = hitTimeRatio;
 		HitCache.timeToHit = timeToHit;
@@ -481,6 +477,7 @@ int UBallSimulatorComponent::HandleCollision(
 		HitCache.SnapshotIndex = CachedSnapshots.Num();
 		HitCache.BouncedDirection = linearVelocity.GetSafeNormal();
 		HitCache.BouncedSpeed = linearVelocity.Size();
+		HitCache.BouncedSpin = angularVelocity.Size();		
 		HitCache.PenetrationDepth = hit.PenetrationDepth;
 		HitCache.bWasStuck = bIsStuck;
 		HitCache.bIsSliding = bIsSliding;
