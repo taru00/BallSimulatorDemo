@@ -45,6 +45,9 @@ struct FBallBounce
 
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
     FVector ImpactPoint;
+    
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+    FVector ImpactNormal;
 
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
     float hitTimeRatio;
@@ -215,9 +218,6 @@ public:
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Ballistic Physics Simulator")
     float SimulationStepInterval = 0.0f; 
 
-    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Ballistic Physics Simulator")    
-    float PullBackDistance = 0.01f;
-
     // 축구공 반지름 : 약 11 cm
     //UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ballistic Physics Simulator")
     //float BallRadius = 11.0f;
@@ -276,6 +276,11 @@ public:
 
     //UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Ballistic Physics Simulator")
     //float Rho = 0.000001225f;   // 공기 밀도 1.225 kg·m⁻³  ( 1.225f / 1e6f kg·cm⁻³ ) 
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Ballistic Physics Simulator")
+    float PreviousHitTime;
+    
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Ballistic Physics Simulator")
+    FVector PreviousHitNormal;
 
     static constexpr int MaxAllowedSimulationStep = 1000;
     static constexpr float SplineTangentLengh = 50.f;        
