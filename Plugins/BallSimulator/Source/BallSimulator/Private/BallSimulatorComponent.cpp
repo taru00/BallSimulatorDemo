@@ -116,7 +116,9 @@ void UBallSimulatorComponent::SimulateBallPhysics(
 		{			
 			FVector magnusForce = FVector::CrossProduct(-direction * speed, angularVelocity) * SpinMagnusFactor;
 			linearVelocity += magnusForce * StepInterval;
-			spinSpeed *= SpinFrictionScale;
+			
+			// 회전 속도의 감쇠: 시간 간격에 따라 회전 속도 감소
+			spinSpeed *= FMath::Pow(SpinFrictionScale, StepInterval);
 		}
 		
 		// Damping 만으로 단순화 가능
