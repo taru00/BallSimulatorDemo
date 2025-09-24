@@ -171,6 +171,16 @@ public:
         const float DeltaTime,
         int32 Depth);
     
+    void PerformRaycastCollision(
+        const FVector& startPos,  // 시작 위치
+        const FVector& velocity,  // 이동 속도
+        float radius,             // 구체의 반지름
+        float maxRayLength,       // 최대 레이 길이
+        FHitResult& hitResult,    // 충돌 정보
+        FTransform& motion );
+
+    void SolveSphereContact(const float Radius, FHitResult& contact, FVector& position, FVector& velocity, float dt);
+
     //bool ResolvePenetration(const FVector& ProposedAdjustment, const FHitResult& Hit, const FQuat& NewRotationQuat);
 
     UFUNCTION(BlueprintCallable, Category = "Ballistic Physics Simulator")
@@ -219,7 +229,7 @@ public:
 
 	// 회전 저항 계수 (1.0 이면 100%)
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ballistic Physics Simulator")
-    float AngularDamping = 0.02f;
+    float AngularDamping = 0.1f;
 
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Ballistic Physics Simulator")
     TArray<FBallSnapshot> CachedSnapshots;
@@ -271,7 +281,7 @@ public:
 
 	// 접촉에 의해 발생되는 추가 회전력 튜닝
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Ballistic Physics Simulator")
-    float SpinToRotateMultiply = 3.f;
+    float SpinToRotateMultiply = 0.1f;
 
 	// 충돌시 최대 선형 임펄스 제한
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ballistic Physics Simulator")

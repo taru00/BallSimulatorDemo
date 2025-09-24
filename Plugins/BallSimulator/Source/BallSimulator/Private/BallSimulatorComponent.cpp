@@ -86,7 +86,7 @@ void UBallSimulatorComponent::SimulateBallPhysics(
 	snapshot.SpinSpeed = spinSpeed;
 	CachedSnapshots.Add(snapshot);	
 	
-	SpinFrictionScale = FMath::Clamp(1.0f - SpinFriction, 0.0f, 1.0f);
+	//SpinFrictionScale = FMath::Clamp(1.0f - SpinFriction, 0.0f, 1.0f);
 
 	for (int32 i = 1; i < SimulationSteps; ++i)
 	{		
@@ -109,8 +109,13 @@ void UBallSimulatorComponent::SimulateBallPhysics(
 			}
 		}
 
+		// 새로운 속도 및 방향, 스냅샷 저장용
 		direction = linearVelocity.GetSafeNormal();
-				
+		speed = linearVelocity.Size();
+		// 바운스로 인해 축이 변경될 수 있음, 스냅샷 저장용
+		spinAxis = angularVelocity.GetSafeNormal();
+		spinSpeed = angularVelocity.Size();
+
 		// 마그누스로 인한 횡력 적용
 		if (spinSpeed > MinSpinForMagnus)
 		{			
@@ -118,7 +123,7 @@ void UBallSimulatorComponent::SimulateBallPhysics(
 			linearVelocity += magnusForce * StepInterval;
 			
 			// 회전 속도의 감쇠: 시간 간격에 따라 회전 속도 감소
-			spinSpeed *= FMath::Pow(SpinFrictionScale, StepInterval);
+			//spinSpeed *= FMath::Pow(SpinFrictionScale, StepInterval);
 		}
 		
 		// Damping 만으로 단순화 가능
@@ -129,21 +134,22 @@ void UBallSimulatorComponent::SimulateBallPhysics(
 		//	FVector accel = drag * InvMass;										 // a = F/m
 		//	linearVelocity += accel * StepInterval;                              
 		//}
-
-		// Δt 동안 회전 (AngularVelocity 로 Rotation 업데이트)
+	
+		// Δt 동안 회전 (AngularVelocity 로 Rotation 업데이트)		
 		FQuat DeltaRotation = FQuat(spinAxis, spinSpeed * StepInterval);
 
-		// 회전 누적, 새 회전 = Δ회전 * 이전 회전
-		Rotation = Rotation * DeltaRotation * SpinToRotateMultiply;
+		// AngularDamping 과 SpinToRotateMultiply 는 HandleCollision 에서 적용
+		// 회전 누적
+		Rotation += DeltaRotation;
 		
 		// 스냅샷 저장			
 		snapshot.Time = i * StepInterval;
 		snapshot.Position = pos;
-		snapshot.Direction = linearVelocity.GetSafeNormal();
+		snapshot.Direction = direction;
 		snapshot.Rotation = Rotation;		
-		snapshot.Speed = linearVelocity.Size();
-		snapshot.SpinAxis = angularVelocity.GetSafeNormal();
-		snapshot.SpinSpeed = angularVelocity.Size();
+		snapshot.Speed = speed;
+		snapshot.SpinAxis = spinAxis;
+		snapshot.SpinSpeed = spinSpeed;
 		snapshot.hitCount = hitCount;
 		CachedSnapshots.Add(snapshot);
 		
@@ -438,7 +444,7 @@ int UBallSimulatorComponent::HandleCollision(
 			// 각속도 업데이트 Δω = I⁻¹ * (r × J)			
 			FVector angularFrictionImpulse = FVector::CrossProduct(r, frictionImpulse);
 			FVector angularDelta = InvInertiaTensor * angularFrictionImpulse;
-			angularVelocity += angularDelta;
+			angularVelocity += angularDelta * SpinToRotateMultiply;
 						
 			HitCache.AngularDelta = angularDelta;
 			HitCache.AngularDeltaSize = angularDelta.Size();
@@ -455,11 +461,10 @@ int UBallSimulatorComponent::HandleCollision(
 		if (bIsStuck)
 		{
 			// TBD - 재현 방법 및 동작 여부 확인 필요
-
 			HitCache.bWasStuck = bIsStuck;
 
 			//const float SmallMargin = KINDA_SMALL_NUMBER;         
-			const float SmallMargin = 0.01f;                  // 밀어낼 여유 마진
+			const float SmallMargin = 0.1f;                  // 밀어낼 여유 마진
 
 			// 침투 깊이만큼 푸시백
 			const FVector PenetrationDirection = hit.Normal.IsNearlyZero() ? FVector::UpVector : hit.Normal;
@@ -491,6 +496,187 @@ int UBallSimulatorComponent::HandleCollision(
 		return Depth;
 	}
 }
+
+
+void UBallSimulatorComponent::PerformRaycastCollision(
+	const FVector& startPos,  // 시작 위치
+	const FVector& velocity,  // 이동 속도
+	float radius,             // 구체의 반지름
+	float maxRayLength,       // 최대 레이 길이
+	FHitResult& hitResult,    // 충돌 정보
+	FTransform& motion        // 물리적인 위치 및 속도 정보
+)
+{
+	// 1. 레이의 끝 위치 계산: 속도 방향에 최대 레이 길이를 곱하여 계산
+	FVector rayDirection = velocity.GetSafeNormal() * maxRayLength;  // 이동 방향에 최대 길이만큼 곱해서 레이 방향 계산
+	FVector endPos = startPos + rayDirection;  // 시작 위치와 끝 위치 계산
+
+	// 2. 레이캐스트 수행
+	FCollisionQueryParams collisionParams;
+	collisionParams.AddIgnoredActor(GetOwner());  // 레이캐스트에서 자기 자신은 제외
+	bool bHit = GetWorld()->LineTraceSingleByChannel(hitResult, startPos, endPos, ECC_Visibility, collisionParams);
+
+	// 3. 충돌이 발생한 경우 처리
+	if (bHit)
+	{
+		// 4. 충돌 정보 업데이트
+		// 예시로 마찰력과 복원력을 설정 (충돌한 재질에 따라 동적으로 설정 가능)
+		float friction = 0.5f;  // 예시 마찰력
+		float restitution = 0.8f;  // 예시 복원력
+
+		// 5. 침투 해결: 충돌 지점과 법선 벡터를 이용하여 위치 보정
+		FVector hitPosition = hitResult.ImpactPoint;  // 충돌 지점
+		FVector correction = hitResult.ImpactNormal * radius;  // 침투 깊이만큼 보정 벡터 생성
+		motion.SetLocation(hitPosition - correction);  // 보정된 위치로 이동
+
+		// 6. 속도 반사: 충돌 법선 방향으로 반사된 속도를 계산
+		FVector reflectedVelocity = velocity - 2 * FVector::DotProduct(velocity, hitResult.ImpactNormal) * hitResult.ImpactNormal;
+
+		// 7. 물체의 새로운 속도 업데이트
+		motion.SetRotation(FQuat::Identity);  // 회전은 그대로 두고 속도만 반영
+		FVector newVelocity = reflectedVelocity;
+
+		// 8. 속도가 매우 작은 경우 정지 처리
+		if (newVelocity.SizeSquared() < 0.1f)  // 속도가 거의 0인 경우
+		{
+			newVelocity = FVector::ZeroVector;  // 속도 0으로 설정하여 정지
+		}
+
+		// 9. 반사된 속도 적용
+		motion.SetScale3D(newVelocity);  // 속도 업데이트
+	}
+}
+
+void SolveVertexContact(
+	FVector& LinearVelocity,        // 선형 속도
+	FVector& AngularVelocity,       // 각속도
+	const FVector& ContactPlaneNormal,  // 접촉 평면의 법선
+	const FVector& ContactPoint,    // 접촉 지점
+	const FVector& ContactVelocity, // 접촉 지점에서의 상대 속도
+	const FVector& RelativePosition,  // 접촉 지점에 대한 상대 위치
+	const float Restitution,              // 복원력
+	const float Friction,                 // 마찰력
+	const float PenetrationDepth,         // 침투 깊이
+	const float InverseMass,              // 질량의 역수
+	const float InverseInertia,           // 관성의 역수
+	const float DeltaTime )
+{
+	// Step 1: 접촉 지점에서의 상대 속도 계산
+	FVector RelativeVelocity = LinearVelocity + FVector::CrossProduct(AngularVelocity, RelativePosition) - ContactVelocity;
+
+	// Step 2: 상대 속도를 법선 방향과 수평 방향으로 분해
+	float NormalVelocity = FVector::DotProduct(RelativeVelocity, ContactPlaneNormal); // 법선 방향 속도
+	FVector TangentialVelocity = RelativeVelocity - (NormalVelocity * ContactPlaneNormal); // 수평 방향 속도
+
+	// Step 3: 법선 방향 충격량 (바운스) 해결
+	FVector NormalImpulse = FVector::ZeroVector;
+	if (NormalVelocity < 0.0f) // 접촉 평면으로 접근하는 경우에만 해결
+	{
+		float RestitutionImpulse = -NormalVelocity * Restitution;  // 복원력에 의한 충격량
+		NormalImpulse = ContactPlaneNormal * (RestitutionImpulse + PenetrationDepth / DeltaTime);  // 충돌 반응으로 인한 법선 방향 충격
+	}
+
+	// Step 4: 마찰력에 의한 충격량 해결
+	FVector FrictionImpulse = -TangentialVelocity;
+	float MaxFriction = Friction * NormalImpulse.Size(); // 최대 마찰력
+	if (FrictionImpulse.Size() > MaxFriction)  // 마찰력 제한
+	{
+		FrictionImpulse = FrictionImpulse.GetSafeNormal() * MaxFriction;  // 마찰력을 최대값으로 클램프
+	}
+
+	// Step 5: 선형 및 각속도에 충격량 적용
+	FVector TotalImpulse = NormalImpulse + FrictionImpulse;  // 총 충격량 계산
+
+	// 선형 속도 업데이트
+	LinearVelocity += TotalImpulse * InverseMass * DeltaTime;
+
+	// 각속도 업데이트 (충격량에 의해 발생한 토크 적용)
+	FVector Torque = FVector::CrossProduct(RelativePosition, TotalImpulse);  // 회전 토크 계산
+	AngularVelocity += Torque * InverseInertia * DeltaTime;  // 각속도 업데이트
+}
+
+void SolveVertexFriction(
+	FVector& LinearVelocity,        // 선형 속도
+	FVector& AngularVelocity,       // 각속도
+	const FVector& ContactPlaneNormal,  // 접촉 평면의 법선
+	const FVector& RelativePosition,   // 접촉 지점에 대한 상대 위치
+	const FVector& TangentialContactVelocity, // 접촉 지점에서의 수평 속도
+	const float FrictionCoefficient,      // 마찰 계수 (마찰력)
+	const float NormalForceMagnitude,     // 법선 방향의 힘 크기
+	const float InverseMass,              // 질량의 역수
+	const float InverseInertia,            // 관성의 역수
+	const float DeltaTime)
+
+{
+	// Step 1: 상대적인 수평 속도 계산
+	FVector RelativeTangentialVelocity = LinearVelocity + FVector::CrossProduct(AngularVelocity, RelativePosition) - TangentialContactVelocity;
+
+	// Step 2: 마찰력에 의한 충격량 계산
+	FVector FrictionImpulse = -RelativeTangentialVelocity; // 마찰력은 수평 속도의 반대 방향
+	float MaxFrictionImpulse = FrictionCoefficient * NormalForceMagnitude;  // 최대 마찰력
+
+	// Step 3: 마찰력을 Coulomb의 법칙에 따라 최대값으로 제한
+	if (FrictionImpulse.Size() > MaxFrictionImpulse) 
+	{
+		FrictionImpulse = FrictionImpulse.GetSafeNormal() * MaxFrictionImpulse;  // 마찰력을 최대값으로 클램프
+	}
+
+	// Step 4: 선형 속도에 마찰력 적용
+	LinearVelocity += FrictionImpulse * InverseMass;
+
+	// Step 5: 각속도에 마찰력에 의한 토크 적용
+	FVector Torque = FVector::CrossProduct(RelativePosition, FrictionImpulse);  // 마찰력에 의한 회전 토크 계산
+	AngularVelocity += Torque * InverseInertia * DeltaTime;  // 각속도 업데이트
+}
+
+void UBallSimulatorComponent::SolveSphereContact(const float Radius, FHitResult& contact, FVector& position, FVector& velocity, float dt)
+{
+	// 법선 방향 속도 계산 (속도와 충돌 법선 벡터의 내적을 통해 구합니다)
+	float normalVelocity = FVector::DotProduct(velocity, contact.ImpactNormal);
+
+	// 충돌 평면을 넘어서 들어간 경우 (penetration) 해결
+	// 충돌 점에서 평면에 대한 거리 계산
+	float distance = FVector::DotProduct(contact.ImpactNormal, position - contact.ImpactPoint) - Radius;
+
+	if (distance < 0.0f)
+	{
+		// 침투된 만큼 위치를 수정하여 충돌을 해결합니다
+		FVector correction = contact.ImpactNormal * -distance;
+		position += correction;  // 위치 보정
+	}
+
+	// 법선 방향 충격량 적용 (법선 속도가 음수인 경우 충돌을 해결합니다)
+	if (normalVelocity < 0.0f) // 법선 속도가 음수일 경우, 즉 충격이 있을 경우에만 해결
+	{
+		// 복원력에 의한 충격량 계산 (탄성 충돌)
+		float restitutionImpulse = normalVelocity * DefaultRestitution;
+		// 최종 충격량 계산 (법선 속도 + 복원력에 의한 충격)
+		float normalImpulse = -(normalVelocity + restitutionImpulse);
+		// 속도에 법선 방향 충격량 적용
+		velocity += contact.ImpactNormal * normalImpulse;
+	}
+
+	// 마찰력에 의한 충격량 적용 (수평 방향 속도 해결)
+	FVector tangentialVelocity = velocity - normalVelocity * contact.ImpactNormal;  // 수평 속도 계산
+
+	// 수평 속도의 크기 계산
+	float tangentialVelocitySquared = tangentialVelocity.SizeSquared();
+
+	// 마찰력에 의한 최대 속도 크기 (maxFriction) 계산
+	float maxFriction = DefaultFriction * FMath::Abs(normalVelocity);
+
+	// 마찰력 크기 제어: 수평 속도가 maxFriction보다 크면, 마찰력을 적용하여 속도를 제한
+	if (tangentialVelocitySquared > maxFriction * maxFriction)
+	{
+		tangentialVelocity.Normalize();
+		tangentialVelocity *= maxFriction;  // 마찰력 크기만큼 속도 제한
+	}
+
+	// 마찰력을 적용한 속도 업데이트
+	velocity -= tangentialVelocity;
+}
+
+
 
 #if 0
 bool HandleSliding(FHitResult& Hit, const FVector& OldVelocity, const uint32 NumBounces, float& SubTickTimeRemaining)
