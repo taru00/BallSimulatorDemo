@@ -140,7 +140,7 @@ void UBallSimulatorComponent::SimulateBallPhysics(
 
 		// AngularDamping 과 SpinToRotateMultiply 는 HandleCollision 에서 적용
 		// 회전 누적
-		Rotation += DeltaRotation;
+		Rotation = DeltaRotation * Rotation;
 		
 		// 스냅샷 저장			
 		snapshot.Time = i * StepInterval;
