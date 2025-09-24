@@ -211,7 +211,7 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ballistic Physics Simulator")
     float MinSpeed = 1.0f;
 
-	// 최소 스핀 이하로 떨어지면 마그누스 효과 미적용
+	// 최소 스핀값 이하로 떨어지면 마그누스 효과 미적용
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ballistic Physics Simulator")
     float MinSpinForMagnus = 10.f;
 
@@ -221,13 +221,13 @@ public:
 
     // 강한 스핀에 의한 횡력 조절 (감아차기 효과)
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ballistic Physics Simulator")
-    float SpinMagnusFactor = 0.01f;
+    float SpinMagnusFactor = 0.02f;
 
-	// 공기 저항 계수 (1.0 이면 100%)
+	// 이동에 대한 저항 계수 (0.05 이면 초당 5% 감쇠)
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ballistic Physics Simulator")
-    float LinearDamping = 0.02f;
+    float LinearDamping = 0.05f;
 
-	// 회전 저항 계수 (1.0 이면 100%)
+	// 회전에 대한 저항 계수 (0.1 이면 초당 10% 감쇠)
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ballistic Physics Simulator")
     float AngularDamping = 0.1f;
 
@@ -251,13 +251,13 @@ public:
     UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category = "Ballistic Physics Simulator")
     float SimulationEndTime = 0.0f;
     
-	// 탄성 1.0 에 가까워 질수록 완전 탕성 운동에 가까워짐 
+	// 탄성 1.0 에 가까워 질수록 완전 탄성 운동에 가까워짐 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ballistic Physics Simulator")
-    float DefaultRestitution = 0.6f;
+    float DefaultRestitution = 0.85f;
 
     // 이동에 대한 감속 계수	
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ballistic Physics Simulator")
-    float DefaultFriction = 0.5f;
+    float DefaultFriction = 0.25f;
 
 	// 접촉시 회전 감속 계수
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ballistic Physics Simulator")
@@ -265,7 +265,7 @@ public:
     
     // 감속 계수에 의해서 자동 계산되는 내부 변수
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Ballistic Physics Simulator")
-    float SpinFrictionScale = 0.95f;
+    float SpinFrictionScale = 0.75f;
     
 	// 관성 모멘트 텐서 스케일 (0.4 ~ 0.5 정도가 현실적인 축구공에 근접)
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ballistic Physics Simulator")
@@ -296,7 +296,7 @@ public:
 
 	// 법선 방향으로 프로젝트된 임펄스가 이 값 이하인 경우 접촉 상태에서의 슬라이딩 (Rolling Contact) 으로 간주
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Ballistic Physics Simulator")
-    float BounceThreshold = 50.f;   
+    float BounceThreshold = 10.f;   
 
 	// 최대 허용 속도 
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Ballistic Physics Simulator")

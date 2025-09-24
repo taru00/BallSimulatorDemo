@@ -103,9 +103,9 @@ void UBallSimulatorComponent::SimulateBallPhysics(
 
 			if(BallBounce.bIsSliding)
 			{
-				// 시뮬레이션 정지, 물리 상태로 전환 필요
-				SimulationEndTime = i * StepInterval;
-				break;
+				// TBD - 시뮬레이션 정지, 물리 상태로 전환 
+				//SimulationEndTime = i * StepInterval;
+				//break;
 			}
 		}
 
@@ -153,11 +153,11 @@ void UBallSimulatorComponent::SimulateBallPhysics(
 		snapshot.hitCount = hitCount;
 		CachedSnapshots.Add(snapshot);
 		
-		// 시뮬레이션 정지, 물리 상태로 전환 필요
-		if (snapshot.Speed < MinSpeed && spinSpeed < MinSpinForMagnus && BounceCount > MaxAllowedBounce)
+		// TBD - 시뮬레이션 정지, 물리 상태로 전환
+		if (snapshot.Speed < MinSpeed || BounceCount > MaxAllowedBounce)
 		{
-			SimulationEndTime = i * StepInterval;
-			break;
+			//SimulationEndTime = i * StepInterval;
+			//break;
 		}
 	}
 	
@@ -295,6 +295,9 @@ int UBallSimulatorComponent::HandleCollision(
 
 		// 남은 시간으로 재귀 호출
 		float remainingTime = DeltaTime - timeToHit;
+		
+		//const float SmallMargin = KINDA_SMALL_NUMBER;         			
+		const float SmallMargin = 0.1f;                  // 밀어낼 여유 마진
 
 		/* 출동 직전 지점 까지 위치 업데이트
 		pos---------*----------------nextPos
@@ -347,6 +350,7 @@ int UBallSimulatorComponent::HandleCollision(
 			pos = nextPos;
 			return Depth;
 		}
+
 		const float LVdotN = (linearVelocity.GetSafeNormal() | hit.ImpactNormal);
 		bool bIsSliding = false;
 		{
@@ -363,17 +367,15 @@ int UBallSimulatorComponent::HandleCollision(
 
 			if (bIsSliding)
 			{
-				// TBD
-				
-				//FVector ProjectedNormal = hit.ImpactNormal * -vRel;
-				// DotProduct(Delta, ProjectedNormal)
-				//float dot = FVector::DotProduct(linearVelocity, ProjectedNormal);
-				//// 평면 위로 사영된 벡터
+				//// TBD
+				//FVector ProjectedNormal = hit.ImpactNormal * -vRel;				
+				//float dot = FVector::DotProduct(linearVelocity, ProjectedNormal);				
 				//FVector projectedVelocity = linearVelocity - dot * ProjectedNormal;
-				
+				//
 				//// 위치 업데이트
-				//pos = pos + projectedVelocity * DeltaTime;
-				//return Depth;
+				//pos = pos + projectedVelocity * DeltaTime;		
+				
+				UE_LOG(LogBallSimulatorComponent, Verbose, TEXT("Sliding detected and Resolved"));
 			}
 		}
 
@@ -403,21 +405,18 @@ int UBallSimulatorComponent::HandleCollision(
 		linearVelocity += HitCache.LinearImpulse;
 		
 		// 임펄스 크기(또는 상대 속도 vRel)가 충분히 크면 bounce, 아니라면 Rolling contact 		
-		bIsSliding = (impulseMagnitude <= BounceThreshold);
-		
+		bIsSliding |= (impulseMagnitude <= BounceThreshold);
 		if(bIsSliding)
 		{
-			FVector ProjectedNormal = hit.ImpactNormal * -vRel;
-			
-			// DotProduct(Delta, ProjectedNormal)
-			float dot = FVector::DotProduct(linearVelocity, ProjectedNormal);
-
-			// 평면 위로 사영된 벡터
-			FVector projectedVelocity = linearVelocity - dot * ProjectedNormal;
+			// TBD
+			//FVector ProjectedNormal = hit.ImpactNormal * -vRel;						
+			//float dot = FVector::DotProduct(linearVelocity, ProjectedNormal);
+			//FVector projectedVelocity = linearVelocity - dot * ProjectedNormal;
 
 			//// 위치 업데이트
 			//pos = pos + projectedVelocity * DeltaTime;
-			//return Depth;
+
+			UE_LOG(LogBallSimulatorComponent, Verbose, TEXT("Sliding detected"));
 		}
 
 		// 쿠롱 마찰 임펄스 계산 (접선 방향 임펄스)
@@ -462,16 +461,12 @@ int UBallSimulatorComponent::HandleCollision(
 		{
 			// TBD - 재현 방법 및 동작 여부 확인 필요
 			HitCache.bWasStuck = bIsStuck;
-
-			//const float SmallMargin = KINDA_SMALL_NUMBER;         
-			const float SmallMargin = 0.1f;                  // 밀어낼 여유 마진
-
+						
 			// 침투 깊이만큼 푸시백
 			const FVector PenetrationDirection = hit.Normal.IsNearlyZero() ? FVector::UpVector : hit.Normal;
 			const float PushBack = hit.PenetrationDepth + SmallMargin; // 소량 여유 마진 추가
 			pos += PenetrationDirection * PushBack;
 			
-			// 디버그용 출력 또는 로그
 			UE_LOG(LogBallSimulatorComponent, Verbose, TEXT("Penetration resolved: depth = %.3f, push = %s"), hit.PenetrationDepth, *PenetrationDirection.ToString());
 		}
 
