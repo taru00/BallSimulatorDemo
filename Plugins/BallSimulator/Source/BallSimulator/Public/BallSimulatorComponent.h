@@ -27,6 +27,9 @@ struct FBallBounce
 
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
     float Spin;
+    
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+    FVector AngularVelocity;
 
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
     FVector BouncedDirection;
@@ -37,6 +40,9 @@ struct FBallBounce
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
     float BouncedSpin;   
 
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+    FVector BouncedAngularVelocity;
+    
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
     bool bWasStuck;
 
@@ -55,22 +61,26 @@ struct FBallBounce
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
     FVector ImpactNormal;
 
-    UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
-    float hitTimeRatio;
-
     // 이번 충돌에 대한 반사 후 추가 충돌이 없을때 사용될 NextPos 후보
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
     FVector NextPos;
     
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
-    float timeToHit;
+    float TimeToBeforeHit;
 
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
     float RemainingTime;
 
+    // 접촉점의 상대 속도 ContactVelocity를 히트 노멀 방향 으로 프로젝션해서 얻은 값
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
     float vRel;
+    
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+    FVector NormalImpulse;
 
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+    FVector FrictionImpulse;
+    
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
     FVector LinearImpulse;
 
@@ -170,17 +180,7 @@ public:
         FVector& AngularVelocity,        
         const float DeltaTime,
         int32 Depth);
-    
-    void PerformRaycastCollision(
-        const FVector& startPos,  // 시작 위치
-        const FVector& velocity,  // 이동 속도
-        float radius,             // 구체의 반지름
-        float maxRayLength,       // 최대 레이 길이
-        FHitResult& hitResult,    // 충돌 정보
-        FTransform& motion );
-
-    void SolveSphereContact(const float Radius, FHitResult& contact, FVector& position, FVector& velocity, float dt);
-
+ 
     //bool ResolvePenetration(const FVector& ProposedAdjustment, const FHitResult& Hit, const FQuat& NewRotationQuat);
 
     UFUNCTION(BlueprintCallable, Category = "Ballistic Physics Simulator")
@@ -221,7 +221,7 @@ public:
 
     // 강한 스핀에 의한 횡력 조절 (감아차기 효과)
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ballistic Physics Simulator")
-    float SpinMagnusFactor = 0.02f;
+    float SpinMagnusFactor = 0.01f;
 
 	// 이동에 대한 저항 계수 (0.05 이면 초당 5% 감쇠)
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ballistic Physics Simulator")
@@ -230,6 +230,10 @@ public:
 	// 회전에 대한 저항 계수 (0.1 이면 초당 10% 감쇠)
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ballistic Physics Simulator")
     float AngularDamping = 0.1f;
+
+	// 바운스시 회전 속도 조절 (0.7 이면 70% 유지됨)
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ballistic Physics Simulator")
+    float BouncedSpinMultiplier = 0.65f;
 
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Ballistic Physics Simulator")
     TArray<FBallSnapshot> CachedSnapshots;
@@ -253,19 +257,19 @@ public:
     
 	// 탄성 1.0 에 가까워 질수록 완전 탄성 운동에 가까워짐 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ballistic Physics Simulator")
-    float DefaultRestitution = 0.85f;
+    float DefaultRestitution = 0.7f;
 
     // 이동에 대한 감속 계수	
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ballistic Physics Simulator")
-    float DefaultFriction = 0.25f;
+    float DefaultFriction = 0.1f;
 
 	// 접촉시 회전 감속 계수
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ballistic Physics Simulator")
-    float SpinFriction = 0.25f;
+    float SpinFriction = 0.1f;
     
     // 감속 계수에 의해서 자동 계산되는 내부 변수
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Ballistic Physics Simulator")
-    float SpinFrictionScale = 0.75f;
+    float SpinFrictionScale = 0.9f;
     
 	// 관성 모멘트 텐서 스케일 (0.4 ~ 0.5 정도가 현실적인 축구공에 근접)
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ballistic Physics Simulator")
@@ -279,9 +283,9 @@ public:
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Ballistic Physics Simulator")
     FVector ScaledInertia = FVector(0.f, 0.f, 0.f);   
 
-	// 접촉에 의해 발생되는 추가 회전력 튜닝
+	// 접촉 지점 및 마찰에 의해 발생되는 추가 회전력 튜닝
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Ballistic Physics Simulator")
-    float SpinToRotateMultiply = 0.1f;
+    float SpinToRotateMultiply = 0.25f;
 
 	// 충돌시 최대 선형 임펄스 제한
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ballistic Physics Simulator")
@@ -289,7 +293,7 @@ public:
 
 	// 최대 바운스 횟수 제한 (시뮬레이션 정지 조건)
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ballistic Physics Simulator")
-    int MaxAllowedBounce = 5;
+    int MaxAllowedBounce = -1;
 
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Ballistic Physics Simulator")
     int BounceCount = 0;
