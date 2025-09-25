@@ -7,3 +7,6 @@ Binaries/Win64/UE4Editor-BallSimulatorDemo.dll
 Intermediate
 Saved
 Plugins/BallSimulator/Binaries
+enc_temp_folder
+Binaries
+.vs
