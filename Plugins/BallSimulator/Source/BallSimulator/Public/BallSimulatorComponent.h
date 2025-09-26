@@ -183,6 +183,9 @@ public:
  
     //bool ResolvePenetration(const FVector& ProposedAdjustment, const FHitResult& Hit, const FQuat& NewRotationQuat);
 
+    // spin 벡터를 회전 쿼터니언으로 변환하는 함수    
+    void ApplySpinToRotation(const FVector& InAngularDelta, FQuat& OutRotation) const;
+
     UFUNCTION(BlueprintCallable, Category = "Ballistic Physics Simulator")
     void ConvertSnapshotsToBezierSpline(const TArray<FBallSnapshot>& Snapshots, USplineComponent* SplineComponent) const;    
 
@@ -231,17 +234,17 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ballistic Physics Simulator")
     float AngularDamping = 0.1f;
 
-	// 바운스시 회전 속도 조절 (0.7 이면 70% 유지됨)
+	// 바운스시 회전 속도 감쇠 조절 (0.7 이면 70% 유지됨)
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ballistic Physics Simulator")
     float BouncedSpinMultiplier = 0.65f;
 
-    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Ballistic Physics Simulator")
+    UPROPERTY(BlueprintReadOnly, Category = "Ballistic Physics Simulator")
     TArray<FBallSnapshot> CachedSnapshots;
 	
-    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Ballistic Physics Simulator")
+    UPROPERTY(BlueprintReadOnly, Category = "Ballistic Physics Simulator")
     TArray<FBallBounce> CachedHits;
 
-    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Ballistic Physics Simulator")
+    UPROPERTY(BlueprintReadOnly, Category = "Ballistic Physics Simulator")
     TArray<FBallBounce> CachedBounces;
     
 	// 시뮬레이션 스텝 시간 간격 (0.033 = 30Hz)
@@ -283,9 +286,9 @@ public:
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Ballistic Physics Simulator")
     FVector ScaledInertia = FVector(0.f, 0.f, 0.f);   
 
-	// 접촉 지점 및 마찰에 의해 발생되는 추가 회전력 튜닝
+	// 접촉 지점 및 마찰에 의해 발생되는 회전력 튜닝 (바운스 및 슬라이딩 에서 회전 변화량에 곱해짐)
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Ballistic Physics Simulator")
-    float SpinToRotateMultiply = 0.25f;
+    float SpinToRotateMultiply = 1.0f;
 
 	// 충돌시 최대 선형 임펄스 제한
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ballistic Physics Simulator")

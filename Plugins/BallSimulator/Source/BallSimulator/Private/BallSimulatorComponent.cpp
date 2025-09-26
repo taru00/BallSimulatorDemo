@@ -113,6 +113,7 @@ void UBallSimulatorComponent::SimulateBallPhysics(
 		// 새로운 속도 및 방향, 스냅샷 저장용
 		direction = linearVelocity.GetSafeNormal();
 		speed = linearVelocity.Size();
+
 		// 바운스로 인해 축이 변경될 수 있음, 스냅샷 저장용
 		spinAxis = angularVelocity.GetSafeNormal();
 		spinSpeed = angularVelocity.Size();
@@ -137,11 +138,12 @@ void UBallSimulatorComponent::SimulateBallPhysics(
 		//}
 	
 		// Δt 동안 회전 (AngularVelocity 로 Rotation 업데이트)		
-		FQuat DeltaRotation = FQuat(spinAxis, spinSpeed * StepInterval);
+		//FQuat DeltaRotation = FQuat(spinAxis, spinSpeed * StepInterval);
+		//Rotation = DeltaRotation * Rotation;
+		ApplySpinToRotation(angularVelocity, Rotation);
 
 		// AngularDamping 과 SpinToRotateMultiply 는 HandleCollision 에서 적용
 		// 회전 누적
-		Rotation = DeltaRotation * Rotation;
 		
 		// 스냅샷 저장			
 		snapshot.Time = i * StepInterval;
@@ -173,6 +175,22 @@ void UBallSimulatorComponent::SimulateBallPhysics(
 	SimulationEndTime = SimulationSteps * StepInterval;
 }
 
+void UBallSimulatorComponent::ApplySpinToRotation(const FVector& InSpin, FQuat& OutRotation) const
+{
+	// RPM(회전수)을 라디안 단위로 변환
+	const float RPM2QUATERNION = 0.104816f;
+	FVector spin = InSpin * RPM2QUATERNION;
+
+	FQuat deltaQuat;
+	deltaQuat.W = 0.5f * (-spin.X * OutRotation.X - spin.Y * OutRotation.Y - spin.Z * OutRotation.Z);
+	deltaQuat.X = 0.5f * (spin.X * OutRotation.W + spin.Y * OutRotation.Z - spin.Z * OutRotation.Y);
+	deltaQuat.Y = 0.5f * (spin.Y * OutRotation.W + spin.Z * OutRotation.X - spin.X * OutRotation.Z);
+	deltaQuat.Z = 0.5f * (spin.Z * OutRotation.W + spin.X * OutRotation.Y - spin.Y * OutRotation.X);
+
+	OutRotation += deltaQuat;
+	OutRotation.Normalize();
+}
+
 int UBallSimulatorComponent::HandleCollision(
 	UWorld* World,
 	const float InvMass,
@@ -189,9 +207,9 @@ int UBallSimulatorComponent::HandleCollision(
 	if (Depth > 10 || DeltaTime <= KINDA_SMALL_NUMBER)
 	{
 		return Depth;
-	}	
+	}
 
-	// 다음 속도 및 위치 계산 (오일러 적분)	
+	// 다음 속도 및 위치 계산 (오일러 적분)
 	// 속도 변화 업데이트 (중력가속도 적용)
 	linearVelocity += GravityVector * DeltaTime;
 
@@ -286,9 +304,10 @@ int UBallSimulatorComponent::HandleCollision(
 		// 1) 접촉점 P 에서 구 질량중심 C 로 가는 벡터 (접촉점 - 구 중심) r = P - C
 		const FVector hitPointToCenter = hit.ImpactPoint - pos;
 
-		// 접촉점의 상대 속도 계산 (스핀 방향에 따른 속도 변화 적용)
-		// 구의 접촉점 속도 = 구의 선형 속도 + (구의 각속도 × (접촉점 - 구의 중심))		
-		const FVector ContactVelocity = linearVelocity + FVector::CrossProduct(angularVelocity, hitPointToCenter);
+		// 구의 접촉점 Tangential 속도 (스핀에 따른 속도 변화 적용)
+		const FVector ContactAngularVelocity = FVector::CrossProduct(angularVelocity, hitPointToCenter);
+		// 접촉점의 상대 속도 = 구의 선형 속도 + (구의 각속도 × (접촉점 - 구의 중심))		
+		const FVector ContactVelocity = linearVelocity + ContactAngularVelocity;
 
 		// 접촉점의 상대 속도 ContactVelocity를 히트 노멀 방향 으로 프로젝션해서 얻은 NormalVelocity(vRel) 값
 		const float vRel = FVector::DotProduct(ContactVelocity, hit.Normal);
@@ -319,7 +338,7 @@ int UBallSimulatorComponent::HandleCollision(
 		// (선택) 충격 임펄스 클램핑으로 과도한 임펄스 방지
 		impulseMagnitude = FMath::Clamp(impulseMagnitude, 0.f, MaxAllowedImpulse);
 
-		// 임펄스 크기 impulseMagnitude (또는 법선 방향 상대 속도 vRel)가 충분히 크면 bounce, 아니라면 Rolling contact 		
+		// 임펄스 크기 impulseMagnitude (또는 법선 방향 상대 속도 vRel)가 충분히 크면 Bounce, 아니면 Sliding
 		if (impulseMagnitude <= BounceThreshold)
 		{
 			bIsSliding = true;
@@ -336,21 +355,26 @@ int UBallSimulatorComponent::HandleCollision(
 
 		// CoulombFriction 쿠롱 마찰 임펄스 계산 (접선 방향 임펄스)
 		FVector angularDelta = FVector::ZeroVector;
+		float angularDeltaSize = 0.f;
 		const FVector tangentVelocity = ContactVelocity - vRel * hit.ImpactNormal;
-		if (!tangentVelocity.IsNearlyZero())
+		float tangentSpeed = tangentVelocity.Size();
+		if (tangentSpeed > KINDA_SMALL_NUMBER)
 		{
-			FVector tanVel = tangentVelocity.GetSafeNormal();
-
-			// 접선 임펄스 분모 (denom 재사용 가능)
-			float tangentImpulse = -FVector::DotProduct(ContactVelocity, tanVel) / denom;
+			FVector tangentDirection = tangentVelocity.GetSafeNormal();
 
 			// 마찰 임펄스 최대값 (μ * 정반사 임펄스)
 			const float maxFrictionImpulse = impulseMagnitude * Friction;
 
+			// 접선 임펄스 분모 (denom 재사용 가능)
+			float tangentImpulse = -FVector::DotProduct(ContactVelocity, tangentDirection) / denom;
+
 			// 클램핑 - 최대 접선 임펄스값 이내로 
 			tangentImpulse = FMath::Clamp(tangentImpulse, -maxFrictionImpulse, maxFrictionImpulse);
+			
+			const FVector frictionImpulse = tangentImpulse * tangentDirection;
+			
+			//const FVector frictionImpulse = -tangentDirection * FMath::Clamp(tangentSpeed, 0.f, maxFrictionImpulse);
 
-			const FVector frictionImpulse = tangentImpulse * tanVel;
 			HitCache.FrictionDelta = frictionImpulse * InvMass;
 			HitCache.FrictionImpulse = frictionImpulse;
 
@@ -360,6 +384,7 @@ int UBallSimulatorComponent::HandleCollision(
 			// 마찰로 인한 각속도 변화량 Δω = I⁻¹ * (r × J)			
 			const FVector angularFrictionImpulse = FVector::CrossProduct(hitPointToCenter, frictionImpulse);
 			angularDelta = InvInertiaTensor * angularFrictionImpulse;
+			angularDeltaSize = angularDelta.Size();
 		}
 
 		// 각속도 업데이트 (시간 간격에 따라 회전 속도 감소) - 시뮬레이션 루프에서 처리함
@@ -375,6 +400,8 @@ int UBallSimulatorComponent::HandleCollision(
 		HitCache.BouncedAngularVelocity = angularVelocity;
 		HitCache.PenetrationDepth = hit.PenetrationDepth;		
 		HitCache.bIsSliding = bIsSliding;
+		HitCache.AngularDelta = angularDelta;
+		HitCache.AngularDeltaSize = angularDeltaSize;
 		CachedHits.Add(HitCache);
 
 		//const float PenetrationVelocityDamping = 0.5f;    // 감속 계수		
@@ -418,9 +445,6 @@ int UBallSimulatorComponent::HandleCollision(
 			// 슬라이딩 상태인 경우 바운스로 인한 각속도 감쇠 (BouncedSpinMultiplier) 적용 안함			
 			angularVelocity += angularDelta * SpinToRotateMultiply;
 
-			HitCache.AngularDelta = angularDelta;
-			HitCache.AngularDeltaSize = angularDelta.Size();
-
 			// 접촉 상태로 굴러가는 중이므로 SubStep 충돌 검사는 생략
 			// 이번 Step 에서의 첫번째 접촉으로 인한 임펄스는 반영, 추가적인 SubStep 충돌처리는 무시			
 			return Depth + 1;	// 슬라이드 판정 시점 현재의 SubStep을 Hit Count에 반영
@@ -429,10 +453,8 @@ int UBallSimulatorComponent::HandleCollision(
 		{			
 			angularVelocity *= BouncedSpinMultiplier; // 바운스로 인한 각속도 추가 감쇠
 			angularVelocity += angularDelta * SpinToRotateMultiply;
-
-			HitCache.AngularDelta = angularDelta;
-			HitCache.AngularDeltaSize = angularDelta.Size();
 		}
+
 		return HandleCollision(World, InvMass, CollisionShape, pos, linearVelocity, angularVelocity, remainingTime, Depth + 1);
 	}
 	else
