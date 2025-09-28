@@ -175,16 +175,24 @@ public:
         UWorld* World,
         const float InvMass,
         const FCollisionShape& CollisionShape,
-        FVector& pos,        
+        FVector& Pos,  
+        FQuat& Rot,
         FVector& LinearVelocity,
-        FVector& AngularVelocity,        
-        const float DeltaTime,
-        int32 Depth);
+        FVector& AngularVelocity,
+        const float DeltaTime,        
+        int32 Depth = 0);
  
     //bool ResolvePenetration(const FVector& ProposedAdjustment, const FHitResult& Hit, const FQuat& NewRotationQuat);
 
+    UFUNCTION(BlueprintCallable, Category = "Ballistic Physics Simulator")
+    void GetAxisAndAngle(const FQuat& InRotation, FVector& OutSpinAxis, float& OutSpin) const;
+    
+    UFUNCTION(BlueprintCallable, Category = "Ballistic Physics Simulator")
+    void GetQuaternion(const FVector& InSpin, FQuat& OutQuaternion, const float RadToRPM = 9.5493f) const;
+
     // spin 벡터를 회전 쿼터니언으로 변환하는 함수    
-    void ApplySpinToRotation(const FVector& InAngularDelta, FQuat& OutRotation) const;
+    UFUNCTION(BlueprintCallable, Category = "Ballistic Physics Simulator")
+    void ApplySpinToRotation(const FVector& InSpin, const FQuat& InRotation, FQuat& OutRotation, const float StepInterval = 0.033f, const float RadToRPM = 9.5493f) const;
 
     UFUNCTION(BlueprintCallable, Category = "Ballistic Physics Simulator")
     void ConvertSnapshotsToBezierSpline(const TArray<FBallSnapshot>& Snapshots, USplineComponent* SplineComponent) const;    

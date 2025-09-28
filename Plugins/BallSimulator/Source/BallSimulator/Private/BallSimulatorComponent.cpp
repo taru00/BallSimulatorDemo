@@ -54,7 +54,7 @@ void UBallSimulatorComponent::SimulateBallPhysics(
 	//CachedSnapshots.Reserve(SimulationSteps);
 	const float InvMass = (BallMass > KINDA_SMALL_NUMBER) ? (1.0f / BallMass) : 0.01f;
 	FCollisionShape CollisionShape = FCollisionShape::MakeSphere(BallRadius);	
-	FVector pos = InitialPosition;
+	FVector Position = InitialPosition;
 	FVector linearVelocity = InitialDirection * InitialSpeed;
 	float speed = linearVelocity.Size();
 	FVector direction = linearVelocity.GetSafeNormal();
@@ -78,7 +78,7 @@ void UBallSimulatorComponent::SimulateBallPhysics(
 
 	// Initial Snapshot
 	snapshot.Time = 0.0f;
-	snapshot.Position = pos;
+	snapshot.Position = Position;
 	snapshot.Direction = direction;
 	//snapshot.SpinQuat = FQuat::Identity;
 	snapshot.Rotation = InitialRotation;
@@ -91,7 +91,7 @@ void UBallSimulatorComponent::SimulateBallPhysics(
 	for (int32 i = 1; i < SimulationSteps; ++i)
 	{		
 		// 위치, 속도 업데이트, 중력, 마찰력, 충돌 처리 (재귀)
-		int hitCount = HandleCollision(World, InvMass, CollisionShape, pos, linearVelocity, angularVelocity, StepInterval, 0);		
+		int hitCount = HandleCollision(World, InvMass, CollisionShape, Position, Rotation, linearVelocity, angularVelocity, StepInterval, 0);
 		if(hitCount > 0) 
 		{
 			// 충돌 SubStep 처리 후 남은 현재 Step의 최종 바운스만 기록
@@ -136,18 +136,13 @@ void UBallSimulatorComponent::SimulateBallPhysics(
 		//	FVector accel = drag * InvMass;										 // a = F/m
 		//	linearVelocity += accel * StepInterval;                              
 		//}
-	
-		// Δt 동안 회전 (AngularVelocity 로 Rotation 업데이트)		
-		//FQuat DeltaRotation = FQuat(spinAxis, spinSpeed * StepInterval);
-		//Rotation = DeltaRotation * Rotation;
-		ApplySpinToRotation(angularVelocity, Rotation);
 
 		// AngularDamping 과 SpinToRotateMultiply 는 HandleCollision 에서 적용
 		// 회전 누적
 		
 		// 스냅샷 저장			
 		snapshot.Time = i * StepInterval;
-		snapshot.Position = pos;
+		snapshot.Position = Position;
 		snapshot.Direction = direction;
 		snapshot.Rotation = Rotation;		
 		snapshot.Speed = speed;
@@ -175,55 +170,94 @@ void UBallSimulatorComponent::SimulateBallPhysics(
 	SimulationEndTime = SimulationSteps * StepInterval;
 }
 
-void UBallSimulatorComponent::ApplySpinToRotation(const FVector& InSpin, FQuat& OutRotation) const
+void UBallSimulatorComponent::GetAxisAndAngle(const FQuat& InRotation, FVector& OutSpinAxis, float& OutSpin) const 
 {
-	// RPM(회전수)을 라디안 단위로 변환
-	const float RPM2QUATERNION = 0.104816f;
-	FVector spin = InSpin * RPM2QUATERNION;
+	InRotation.ToAxisAndAngle(OutSpinAxis, OutSpin);
+}
 
-	FQuat deltaQuat;
-	deltaQuat.W = 0.5f * (-spin.X * OutRotation.X - spin.Y * OutRotation.Y - spin.Z * OutRotation.Z);
-	deltaQuat.X = 0.5f * (spin.X * OutRotation.W + spin.Y * OutRotation.Z - spin.Z * OutRotation.Y);
-	deltaQuat.Y = 0.5f * (spin.Y * OutRotation.W + spin.Z * OutRotation.X - spin.X * OutRotation.Z);
-	deltaQuat.Z = 0.5f * (spin.Z * OutRotation.W + spin.X * OutRotation.Y - spin.Y * OutRotation.X);
+void UBallSimulatorComponent::ApplySpinToRotation(const FVector& InSpin, const FQuat& InRotation, FQuat& OutRotation, const float StepInterval, const float RadToRPM) const
+{	
+	// 1 RPM = (2 * Pi) / 60.f = 0.1047197551
+	// const float RPMToRad = 0.1047197551;
+	
+	// 1 rad/s = 60.f / (2 * PI) RPM	
+	// const float RadToRPM = 9.5493f;
 
-	OutRotation += deltaQuat;
-	OutRotation.Normalize();
+	FVector spin = InSpin * RadToRPM;
+
+	FVector newSpinAxis = spin.GetSafeNormal();
+	float newSpinSpeed = spin.Size();
+
+	FQuat DeltaRotation = FQuat(newSpinAxis, newSpinSpeed * StepInterval);
+	OutRotation = DeltaRotation * InRotation;
+	//OutRotation.Normalize();
+
+	// Gaffer on Games 공식 참고 (dq / dt = 0.5 * ω * q)
+	//FQuat deltaQuat;
+	//deltaQuat.W = 0.5f * (-spin.X * Rotation.X - spin.Y * Rotation.Y - spin.Z * Rotation.Z);
+	//deltaQuat.X = 0.5f * (spin.X * Rotation.W + spin.Y * Rotation.Z - spin.Z * Rotation.Y);
+	//deltaQuat.Y = 0.5f * (spin.Y * Rotation.W + spin.Z * Rotation.X - spin.X * Rotation.Z);
+	//deltaQuat.Z = 0.5f * (spin.Z * Rotation.W + spin.X * Rotation.Y - spin.Y * Rotation.X);
+
+	//Rotation = deltaQuat * StepInterval * Rotation;
+	//Rotation.Normalize();	
+}
+
+void UBallSimulatorComponent::GetQuaternion(const FVector& InSpin, FQuat& OutQuaternion, const float RadToRPM) const
+{	// 1초에 대한 회전 값 계산 (spin.x, spin.y, spin.z는 각각 회전 속도)
+	// RPM을 회전 속도로 변환 (회전 속도를 radians/s로 변환)
+	float deltaRotationX = InSpin.X * RadToRPM;
+	float deltaRotationY = InSpin.Y * RadToRPM;
+	float deltaRotationZ = InSpin.Z * RadToRPM;
+
+	// 각 회전 속도에 대한 회전 쿼터니언 생성
+	FQuat deltaQuatX(FVector(1.0f, 0.0f, 0.0f), deltaRotationX);  // X축 회전
+	FQuat deltaQuatY(FVector(0.0f, 1.0f, 0.0f), deltaRotationY);  // Y축 회전
+	FQuat deltaQuatZ(FVector(0.0f, 0.0f, 1.0f), deltaRotationZ);  // Z축 회전
+
+	// 각축 회전 쿼터니언 결합
+	OutQuaternion = deltaQuatX * deltaQuatY * deltaQuatZ;
 }
 
 int UBallSimulatorComponent::HandleCollision(
 	UWorld* World,
 	const float InvMass,
 	const FCollisionShape& CollisionShape,
-	FVector& pos,
-	FVector& linearVelocity,
-	FVector& angularVelocity,
-	const float DeltaTime,
+	FVector& Position,
+	FQuat& Rotation,
+	FVector& LinearVelocity,
+	FVector& AngularVelocity,
+	const float DeltaTime,	
 	int32 Depth)
 {
 	TRACE_CPUPROFILER_EVENT_SCOPE(UBallSimulatorComponent::HandleCollision);
-
-	// SubStep 정지 조건
-	if (Depth > 10 || DeltaTime <= KINDA_SMALL_NUMBER)
-	{
-		return Depth;
-	}
+	
+	const FVector prevLinearVelocity = LinearVelocity;
+	const FVector prevAngularVelocity = AngularVelocity;
 
 	// 다음 속도 및 위치 계산 (오일러 적분)
 	// 속도 변화 업데이트 (중력가속도 적용)
-	linearVelocity += GravityVector * DeltaTime;
+	FVector nextLinearVelocity = prevLinearVelocity + GravityVector * DeltaTime;
 
 	// 선형 감쇠 적용 (선형 감쇠는 Chaos에서 damping factor로 처리)	
-	linearVelocity *= FMath::Clamp(1.0f - LinearDamping * DeltaTime, 0.0f, 1.0f);
-	angularVelocity *= FMath::Clamp(1.0f - AngularDamping * DeltaTime, 0.0f, 1.0f);
+	nextLinearVelocity = nextLinearVelocity * FMath::Clamp(1.0f - LinearDamping * DeltaTime, 0.0f, 1.0f);
+	FVector nextAngularVelocity = prevAngularVelocity * FMath::Clamp(1.0f - AngularDamping * DeltaTime, 0.0f, 1.0f);
 
 	// 충돌이 없을 경우 사용될 nextPos 후보
-	FVector nextPos = pos + linearVelocity * DeltaTime;
+	FVector nextPos = Position + nextLinearVelocity * DeltaTime;
+		
+
+	bool bContinueSubStep = true;
+	// SubStep 정지 조건
+	if (Depth > 10 || DeltaTime <= KINDA_SMALL_NUMBER)
+	{
+		bContinueSubStep =false;				
+	}
 
 	FHitResult hit;
 	bool bHit = World->SweepSingleByChannel(
 		hit,
-		pos,
+		Position,
 		nextPos,
 		FQuat::Identity,               // 회전 불필요
 		ECC_WorldStatic,
@@ -231,237 +265,242 @@ int UBallSimulatorComponent::HandleCollision(
 		FCollisionQueryParams(FName(TEXT("BallSimSweep")), true)
 	);
 
-	if (bHit && hit.bBlockingHit)
+	if (!bContinueSubStep || !bHit || !hit.bBlockingHit)	
 	{
-		FBallBounce HitCache;
-		HitCache.Direction = linearVelocity.GetSafeNormal();
-		HitCache.Speed = linearVelocity.Size();
-		HitCache.Spin = angularVelocity.Size();
-		HitCache.AngularVelocity = angularVelocity;
-		HitCache.StartPos = pos; // hit.TraceStart;
-		HitCache.ImpactPoint = hit.ImpactPoint;
-		HitCache.ImpactNormal = hit.ImpactNormal;
-		HitCache.Hit = hit;
+		// 충돌이 없으면 위치 및 속도 업데이트		
+		LinearVelocity = nextLinearVelocity;
+		Position = nextPos;
+		
+		AngularVelocity = nextAngularVelocity;
+		ApplySpinToRotation(AngularVelocity, Rotation, Rotation, DeltaTime);
 
-		const float hitTimeRatio = hit.Time;
+		return Depth;
+	}
 
-		// 침투 방지 또는 해결을 위한 소량의 여유 마진
-		const float SmallMargin = KINDA_SMALL_NUMBER;
-		const float timeToBeforeHit = DeltaTime * hitTimeRatio - SmallMargin;
+	// 여기서부터 Sweep 히트 처리 시작
+	FBallBounce HitCache;
+	HitCache.Direction = prevLinearVelocity.GetSafeNormal();
+	HitCache.Speed = prevLinearVelocity.Size();
+	HitCache.AngularVelocity = prevAngularVelocity;
+	HitCache.Spin = prevAngularVelocity.Size();
+	HitCache.StartPos = Position; // hit.TraceStart;
+	HitCache.ImpactPoint = hit.ImpactPoint;
+	HitCache.ImpactNormal = hit.ImpactNormal;
+	HitCache.Hit = hit;
 
-		// 남은 시간으로 재귀 호출
-		const float remainingTime = DeltaTime - timeToBeforeHit;
+	const float hitTimeRatio = hit.Time;		
 
-		// 히트 노멀 방향으로의 속도 비율 (음수이면 충돌면 쪽으로 이동 중)
-		const float LVdotN = (linearVelocity.GetSafeNormal() | hit.ImpactNormal);	
+	// 침투 방지 또는 해결을 위한 소량의 여유 마진
+	const float SmallMargin = KINDA_SMALL_NUMBER;
+	const float timeToBeforeHit = DeltaTime * hitTimeRatio - SmallMargin;
 
-		bool bIsSliding = false;			
-		const bool bMultiHit = (World->GetTimeSeconds() - PreviousHitTime <= UE_KINDA_SMALL_NUMBER && timeToBeforeHit <= UE_KINDA_SMALL_NUMBER);
-
-		// if velocity still into wall (after HandleBlockingHit() had a chance to adjust), slide along wall
-		// 짧은 시간에 (주로 SubStep 에서) 연속적으로 hit가 발생  && 이전 충돌과 거의 동일한 노멀 방향
-		const float DotTolerance = 0.01f;
-		bIsSliding = (bMultiHit && FVector::Coincident(PreviousHitNormal, hit.ImpactNormal)) ||
-			(FMath::Abs(LVdotN) <= DotTolerance);
-			
-		PreviousHitTime = World->GetTimeSeconds();
-		PreviousHitNormal = hit.ImpactNormal;			
-
-		/* 출동 직전 지점 까지 위치 업데이트
-		pos---------*----------------nextPos
-					↑
-					hit.Location(≈ Lerp(pos, nextPos, hit.Time - SmallMargin))
-		*/
-		pos = pos + linearVelocity * timeToBeforeHit;
-
-		// 약간 더 이동 (충돌면에 살짝 박히는 현상 방지)
-		//pos += HitCache.BouncedDirection * HitCache.BouncedSpeed * KINDA_SMALL_NUMBER;
-
-		//pos = hit.Normal * hit.PenetrationDepth + PullBackDistance;
-
-		float Friction = DefaultFriction;
-		float Restitution = DefaultRestitution;
-
-		// 충돌한 물리 재질에서 속성 가져오기
-		if (hit.PhysMaterial.IsValid())
-		{
-			UPhysicalMaterial* PhysMat = hit.PhysMaterial.Get();
-
-			// 커스텀 탄성/마찰 계수 가져오기 (기본 엔진 값 or 사용자 정의)
-			// 예: PhysicalMaterial 에서 SurfaceType으로 분기하거나
-			// 사용자 정의 UPhysicalMaterial 서브클래스에서 속성 직접 사용 가능
-			// 기본 엔진 속성 (Material Editor에서 설정 가능)
-			Friction = PhysMat->Friction;
-			Restitution = PhysMat->Restitution;
-		}
-
-		// 마찰로 인한 감쇠. 마찰이 크면 접선 속도는 작아진다.
-		float frictionScale = FMath::Clamp(1.0f - Friction, 0.f, 1.0f);
-
-		// https://research.ncl.ac.uk/game/mastersdegree/gametechnologies/previousinformation/physics6collisionresponse/2017%20Tutorial%206%20-%20Collision%20Response.pdf
-		// 충돌 임펄스 계산 (질량, 관성 텐서 반영)
-		// J = −((1+e)vRel) ​​/ (m⁻¹​+n⋅((I⁻¹(r×n))×r)(1+e))		
-		// 1) 접촉점 P 에서 구 질량중심 C 로 가는 벡터 (접촉점 - 구 중심) r = P - C
-		const FVector hitPointToCenter = hit.ImpactPoint - pos;
-
-		// 구의 접촉점 Tangential 속도 (스핀에 따른 속도 변화 적용)
-		const FVector ContactAngularVelocity = FVector::CrossProduct(angularVelocity, hitPointToCenter);
-		// 접촉점의 상대 속도 = 구의 선형 속도 + (구의 각속도 × (접촉점 - 구의 중심))		
-		const FVector ContactVelocity = linearVelocity + ContactAngularVelocity;
-
-		// 접촉점의 상대 속도 ContactVelocity를 히트 노멀 방향 으로 프로젝션해서 얻은 NormalVelocity(vRel) 값
-		const float vRel = FVector::DotProduct(ContactVelocity, hit.Normal);
-		HitCache.vRel = vRel;
-
-		// 접촉점이 서로 멀어지는 중이면 충돌 처리 불필요			
-		if (vRel > 0.f)
-		{
-			pos = nextPos;
-			return Depth;
-		}
-
-		// 2) r × n , r:hitPointToCenter , n:hit.ImpactNormal
-		const FVector rCrossN = FVector::CrossProduct(hitPointToCenter, hit.ImpactNormal);
-
-		// 3) I⁻¹ * (r × n)
-		const FVector inertiaTerm = InvInertiaTensor * rCrossN;
-
-		// 4) (I⁻¹ * (r × n)) × r
-		const FVector crossTerm = FVector::CrossProduct(inertiaTerm, hitPointToCenter);
-
-		// 5) 최종 분모 denom = m⁻¹+ [(I⁻¹ * (r × n)) × r]⋅n
-		const float denom = InvMass + FVector::DotProduct(crossTerm, hit.ImpactNormal);
-
-		// 6) Restitution : 0 = 완전 비탄성, 1 = 완전 탄성.
-		float impulseMagnitude = -(1.0f + Restitution) * vRel / denom;
-
-		// (선택) 충격 임펄스 클램핑으로 과도한 임펄스 방지
-		impulseMagnitude = FMath::Clamp(impulseMagnitude, 0.f, MaxAllowedImpulse);
-
-		// 임펄스 크기 impulseMagnitude (또는 법선 방향 상대 속도 vRel)가 충분히 크면 Bounce, 아니면 Sliding
-		if (impulseMagnitude <= BounceThreshold)
-		{
-			bIsSliding = true;
-			UE_LOG(LogBallSimulatorComponent, Verbose, TEXT("Sliding detected! impulseMagnitude:%f"), impulseMagnitude);
-		}
-
-		// 7) 임펄스 벡터 (법선 방향으로 impulseMagnitude 곱)
-		const FVector normalImpulse = impulseMagnitude * hit.ImpactNormal;
-		HitCache.NormalImpulse = normalImpulse;
-
-		// 8) 선형 속도 업데이트  v = v + impulse * InvMass
-		HitCache.LinearImpulse = normalImpulse * InvMass;
-		linearVelocity += HitCache.LinearImpulse;
-
-		// CoulombFriction 쿠롱 마찰 임펄스 계산 (접선 방향 임펄스)
-		FVector angularDelta = FVector::ZeroVector;
-		float angularDeltaSize = 0.f;
-		const FVector tangentVelocity = ContactVelocity - vRel * hit.ImpactNormal;
-		float tangentSpeed = tangentVelocity.Size();
-		if (tangentSpeed > KINDA_SMALL_NUMBER)
-		{
-			FVector tangentDirection = tangentVelocity.GetSafeNormal();
-
-			// 마찰 임펄스 최대값 (μ * 정반사 임펄스)
-			const float maxFrictionImpulse = impulseMagnitude * Friction;
-
-			// 접선 임펄스 분모 (denom 재사용 가능)
-			float tangentImpulse = -FVector::DotProduct(ContactVelocity, tangentDirection) / denom;
-
-			// 클램핑 - 최대 접선 임펄스값 이내로 
-			tangentImpulse = FMath::Clamp(tangentImpulse, -maxFrictionImpulse, maxFrictionImpulse);
-			
-			const FVector frictionImpulse = tangentImpulse * tangentDirection;
-			
-			//const FVector frictionImpulse = -tangentDirection * FMath::Clamp(tangentSpeed, 0.f, maxFrictionImpulse);
-
-			HitCache.FrictionDelta = frictionImpulse * InvMass;
-			HitCache.FrictionImpulse = frictionImpulse;
-
-			// 선형 속도 업데이트 (마찰 임펄스 적용)
-			linearVelocity += frictionImpulse * InvMass;
-
-			// 마찰로 인한 각속도 변화량 Δω = I⁻¹ * (r × J)			
-			const FVector angularFrictionImpulse = FVector::CrossProduct(hitPointToCenter, frictionImpulse);
-			angularDelta = InvInertiaTensor * angularFrictionImpulse;
-			angularDeltaSize = angularDelta.Size();
-		}
-
-		// 각속도 업데이트 (시간 간격에 따라 회전 속도 감소) - 시뮬레이션 루프에서 처리함
-		// angularVelocity *= FMath::Pow(SpinFrictionScale, timeToHit);
-
-		HitCache.NextPos = hit.Location + linearVelocity * remainingTime;
-		HitCache.TimeToBeforeHit = timeToBeforeHit;
-		HitCache.RemainingTime = remainingTime;
-		HitCache.SnapshotIndex = CachedSnapshots.Num();
-		HitCache.BouncedDirection = linearVelocity.GetSafeNormal();
-		HitCache.BouncedSpeed = linearVelocity.Size();
-		HitCache.BouncedSpin = angularVelocity.Size();
-		HitCache.BouncedAngularVelocity = angularVelocity;
-		HitCache.PenetrationDepth = hit.PenetrationDepth;		
-		HitCache.bIsSliding = bIsSliding;
-		HitCache.AngularDelta = angularDelta;
-		HitCache.AngularDeltaSize = angularDeltaSize;
-		CachedHits.Add(HitCache);
-
-		//const float PenetrationVelocityDamping = 0.5f;    // 감속 계수		
-		const float PenetrationDepthThreshold = 0.1f;     // 끼인 것으로 판단할 최소 깊이
-
-		// trace started in penetration, i.e. with an initial blocking overlap.
-		const bool bIsStuck = hit.bStartPenetrating || hit.PenetrationDepth > PenetrationDepthThreshold;
+	//const float PenetrationVelocityDamping = 0.5f;    // 감속 계수		
+	const float PenetrationDepthThreshold = 0.1f;     // 끼인 것으로 판단할 최소 깊이
+	// trace started in penetration, i.e. with an initial blocking overlap.
+	const bool bIsStuck = hit.bStartPenetrating || hit.PenetrationDepth > PenetrationDepthThreshold;
+	if (bIsStuck)
+	{
+		// TBD - 재현 방법 및 동작 여부 확인 필요
 		HitCache.bWasStuck = bIsStuck;
 
-		if (bIsStuck)
-		{
-			// TBD - 재현 방법 및 동작 여부 확인 필요
-			HitCache.bWasStuck = bIsStuck;
-
-			// 침투 깊이만큼 푸시백
-			const FVector PenetrationDirection = hit.Normal.IsNearlyZero() ? FVector::UpVector : hit.Normal;
-			const float PushBack = hit.PenetrationDepth + SmallMargin;
-			pos += PenetrationDirection * PushBack;
-
-			UE_LOG(LogBallSimulatorComponent, Verbose, TEXT("Penetration resolved: depth = %.3f, push = %s"), hit.PenetrationDepth, *PenetrationDirection.ToString());
-
-			return Depth + 1;
-		}
-
-		if (bIsSliding)
-		{		
-			UE_LOG(LogBallSimulatorComponent, Verbose, TEXT("Sliding detected : MultiHit = %s, LVdotN = %.4f, PreviousHitNormal , PreviousHitTime = %.4f"),
-				(bMultiHit ? TEXT("True") : TEXT("False")), LVdotN, PreviousHitTime);
+		// 침투 깊이만큼 푸시백
+		const FVector PenetrationDirection = hit.Normal.IsNearlyZero() ? FVector::UpVector : hit.Normal;
+		//const float PushBack = hit.PenetrationDepth + SmallMargin;
+		//LinearVelocity = PenetrationDirection * PushBack;
+		//Pos += LinearVelocity * DeltaTime;
+		//ApplySpinToRotation(AngularVelocity, Rot, Rot, remainingTime);
 			
-			// 슬라이딩 상태에서의 위치 업데이트
-			//FVector ProjectedNormal = hit.ImpactNormal * -LVdotN;
-			//float dot = FVector::DotProduct(linearVelocity, ProjectedNormal);
-			//FVector projectedVelocity = linearVelocity - dot * ProjectedNormal;
-			//pos = pos + projectedVelocity * remainingTime;
+		UE_LOG(LogBallSimulatorComponent, Verbose, TEXT("Penetration resolved: depth = %.3f, push = %s"), hit.PenetrationDepth, *PenetrationDirection.ToString());
+
+		//return Depth + 1;
+	}
+
+	// 충돌 직전까지의 속도 계산
+	LinearVelocity = prevLinearVelocity + GravityVector * timeToBeforeHit;
+	LinearVelocity = LinearVelocity * FMath::Clamp(1.0f - LinearDamping * timeToBeforeHit, 0.0f, 1.0f);
+	AngularVelocity = prevAngularVelocity * FMath::Clamp(1.0f - AngularDamping * timeToBeforeHit, 0.0f, 1.0f);
+
+	/* 출동 직전 지점 까지 위치 업데이트
+	pos---------*----------------nextPos
+				↑
+				hit.Location(≈ Lerp(pos, nextPos, hit.Time - SmallMargin))
+	*/
+	FVector hitBeforePos = Position + LinearVelocity * timeToBeforeHit;
+
+	// 약간 더 이동 (충돌면에 살짝 박히는 현상 방지)
+	//hitBeforePos += HitCache.BouncedDirection * HitCache.BouncedSpeed * KINDA_SMALL_NUMBER;
+
+	//hitBeforePos = hit.Normal * hit.PenetrationDepth + PullBackDistance;
+		
+	// 남은 시간으로 재귀 호출
+	const float remainingTime = DeltaTime - timeToBeforeHit;
+
+	// 히트 노멀 방향으로의 속도 비율 (음수이면 충돌면 쪽으로 이동 중)
+	const float LVdotN = (LinearVelocity.GetSafeNormal() | hit.ImpactNormal);
+
+	bool bIsSliding = false;			
+	const bool bMultiHit = (World->GetTimeSeconds() - PreviousHitTime <= UE_KINDA_SMALL_NUMBER && timeToBeforeHit <= UE_KINDA_SMALL_NUMBER);
+
+	// if velocity still into wall (after HandleBlockingHit() had a chance to adjust), slide along wall
+	// 짧은 시간에 (주로 SubStep 에서) 연속적으로 hit가 발생  && 이전 충돌과 거의 동일한 노멀 방향
+	const float DotTolerance = 0.01f;
+	bIsSliding = (bMultiHit && FVector::Coincident(PreviousHitNormal, hit.ImpactNormal)) ||
+		(FMath::Abs(LVdotN) <= DotTolerance);
 			
-			// TBD - 프레임 레이트에 독립적인 Rolling Friction 적용 확인 필요
-			// 슬라이딩 중에도 Step당 1회는 충돌 처리 통한 임펄스 및 마찰 임펄스, 이동 속도, 각속도 업데이트 필요
-			// 잔여 시간 동안 이동 (슬라이딩 상태에서의 위치 업데이트)
-			pos = pos + linearVelocity * remainingTime;
+	PreviousHitTime = World->GetTimeSeconds();
+	PreviousHitNormal = hit.ImpactNormal;		
 
-			// 슬라이딩 상태인 경우 바운스로 인한 각속도 감쇠 (BouncedSpinMultiplier) 적용 안함			
-			angularVelocity += angularDelta * SpinToRotateMultiply;
+	float Friction = DefaultFriction;
+	float Restitution = DefaultRestitution;
 
-			// 접촉 상태로 굴러가는 중이므로 SubStep 충돌 검사는 생략
-			// 이번 Step 에서의 첫번째 접촉으로 인한 임펄스는 반영, 추가적인 SubStep 충돌처리는 무시			
-			return Depth + 1;	// 슬라이드 판정 시점 현재의 SubStep을 Hit Count에 반영
-		}
-		else
-		{			
-			angularVelocity *= BouncedSpinMultiplier; // 바운스로 인한 각속도 추가 감쇠
-			angularVelocity += angularDelta * SpinToRotateMultiply;
-		}
+	// 충돌한 물리 재질에서 속성 가져오기
+	if (hit.PhysMaterial.IsValid())
+	{
+		UPhysicalMaterial* PhysMat = hit.PhysMaterial.Get();
 
-		return HandleCollision(World, InvMass, CollisionShape, pos, linearVelocity, angularVelocity, remainingTime, Depth + 1);
+		// 커스텀 탄성/마찰 계수 가져오기 (기본 엔진 값 or 사용자 정의)
+		// 예: PhysicalMaterial 에서 SurfaceType으로 분기하거나
+		// 사용자 정의 UPhysicalMaterial 서브클래스에서 속성 직접 사용 가능
+		// 기본 엔진 속성 (Material Editor에서 설정 가능)
+		Friction = PhysMat->Friction;
+		Restitution = PhysMat->Restitution;
+	}
+
+	// 마찰로 인한 감쇠. 마찰이 크면 접선 속도는 작아진다.
+	float frictionScale = FMath::Clamp(1.0f - Friction, 0.f, 1.0f);
+
+	// https://research.ncl.ac.uk/game/mastersdegree/gametechnologies/previousinformation/physics6collisionresponse/2017%20Tutorial%206%20-%20Collision%20Response.pdf
+	// 충돌 임펄스 계산 (질량, 관성 텐서 반영)
+	// J = −((1+e)vRel) ​​/ (m⁻¹​+n⋅((I⁻¹(r×n))×r)(1+e))		
+	// 1) 접촉점 P 에서 구 질량중심 C 로 가는 벡터 (접촉점 - 구 중심) r = P - C
+	const FVector hitPointToCenter = hit.ImpactPoint - hitBeforePos;
+
+	// 구의 접촉점 Tangential 속도 (스핀에 따른 속도 변화 적용)
+	const FVector ContactAngularVelocity = FVector::CrossProduct(AngularVelocity, hitPointToCenter);
+	// 접촉점의 상대 속도 = 구의 선형 속도 + (구의 각속도 × (접촉점 - 구의 중심))		
+	const FVector ContactVelocity = LinearVelocity + ContactAngularVelocity;
+	// 접촉점의 상대 속도 ContactVelocity를 히트 노멀 방향 으로 프로젝션해서 얻은 NormalVelocity(vRel) 값
+	const float vRel = FVector::DotProduct(ContactVelocity, hit.Normal);
+	HitCache.vRel = vRel;
+
+	// 접촉점이 서로 멀어지는 중이면 충돌 처리 불필요			
+	if (vRel > 0.f)
+	{
+		Position = nextPos;
+		return Depth;
+	}
+
+	// 2) r × n , r:hitPointToCenter , n:hit.ImpactNormal
+	const FVector rCrossN = FVector::CrossProduct(hitPointToCenter, hit.ImpactNormal);
+	// 3) I⁻¹ * (r × n)
+	const FVector inertiaTerm = InvInertiaTensor * rCrossN;
+	// 4) (I⁻¹ * (r × n)) × r
+	const FVector crossTerm = FVector::CrossProduct(inertiaTerm, hitPointToCenter);
+	// 5) 최종 분모 denom = m⁻¹+ [(I⁻¹ * (r × n)) × r]⋅n
+	const float denom = InvMass + FVector::DotProduct(crossTerm, hit.ImpactNormal);
+	// 6) Restitution : 0 = 완전 비탄성, 1 = 완전 탄성.
+	float impulseMagnitude = -(1.0f + Restitution) * vRel / denom;
+	// (선택) 충격 임펄스 클램핑으로 과도한 임펄스 방지
+	impulseMagnitude = FMath::Clamp(impulseMagnitude, 0.f, MaxAllowedImpulse);
+	// 임펄스 크기 impulseMagnitude (또는 법선 방향 상대 속도 vRel)가 충분히 크면 Bounce, 아니면 Sliding
+	if (impulseMagnitude <= BounceThreshold)
+	{
+		bIsSliding = true;
+		UE_LOG(LogBallSimulatorComponent, Verbose, TEXT("Sliding detected! impulseMagnitude:%f"), impulseMagnitude);
+	}
+
+	// 7) 임펄스 벡터 (법선 방향으로 impulseMagnitude 곱)
+	const FVector normalImpulse = impulseMagnitude * hit.ImpactNormal;
+	HitCache.NormalImpulse = normalImpulse;
+
+	// 8) 선형 속도 업데이트  v = v + impulse * InvMass
+	HitCache.LinearImpulse = normalImpulse * InvMass;
+	LinearVelocity += HitCache.LinearImpulse;
+
+	// CoulombFriction 쿠롱 마찰 임펄스 계산 (접선 방향 임펄스)
+	FVector angularDelta = FVector::ZeroVector;
+	float angularDeltaSize = 0.f;
+	const FVector tangentVelocity = ContactVelocity - vRel * hit.ImpactNormal;
+	float tangentSpeed = tangentVelocity.Size();
+	if (tangentSpeed > KINDA_SMALL_NUMBER)
+	{
+		FVector tangentDirection = tangentVelocity.GetSafeNormal();
+
+		// 마찰 임펄스 최대값 (μ * 정반사 임펄스)
+		const float maxFrictionImpulse = impulseMagnitude * Friction;
+		// 접선 임펄스 분모 (denom 재사용 가능)
+		float tangentImpulse = -FVector::DotProduct(ContactVelocity, tangentDirection) / denom;
+		// 클램핑 - 최대 접선 임펄스값 이내로 
+		tangentImpulse = FMath::Clamp(tangentImpulse, -maxFrictionImpulse, maxFrictionImpulse);
+		const FVector frictionImpulse = tangentImpulse * tangentDirection;
+		//const FVector frictionImpulse = -tangentDirection * FMath::Clamp(tangentSpeed, 0.f, maxFrictionImpulse);
+
+		HitCache.FrictionDelta = frictionImpulse * InvMass;
+		HitCache.FrictionImpulse = frictionImpulse;
+
+		// 선형 속도 업데이트 (마찰 임펄스 적용)
+		LinearVelocity += frictionImpulse * InvMass;
+		// 마찰로 인한 각속도 변화량 Δω = I⁻¹ * (r × J)			
+		const FVector angularFrictionImpulse = FVector::CrossProduct(hitPointToCenter, frictionImpulse);
+		angularDelta = InvInertiaTensor * angularFrictionImpulse;
+		angularDeltaSize = angularDelta.Size();
+	}
+		
+	if (bIsSliding)
+	{		
+		UE_LOG(LogBallSimulatorComponent, Verbose, TEXT("Sliding detected : MultiHit = %s, LVdotN = %.4f, PreviousHitNormal , PreviousHitTime = %.4f"),
+			(bMultiHit ? TEXT("True") : TEXT("False")), LVdotN, PreviousHitTime);
+			
+		// 슬라이딩 상태에서의 위치 업데이트
+		//FVector ProjectedNormal = hit.ImpactNormal * -LVdotN;
+		//float dot = FVector::DotProduct(LinearVelocity, ProjectedNormal);
+		//FVector projectedVelocity = LinearVelocity - dot * ProjectedNormal;
+		//pos = pos + projectedVelocity * remainingTime;			
+
+		// TBD - 프레임 레이트에 독립적인 Rolling Friction 적용 확인 필요
+		// 슬라이딩 중에도 Step당 1회는 충돌 처리 통한 임펄스 및 마찰 임펄스, 이동 속도, 각속도 업데이트 필요
+		// 잔여 시간 동안 이동 (슬라이딩 상태에서의 위치 업데이트)
+			
+		// 슬라이딩 상태인 경우 바운스로 인한 각속도 감쇠 (BouncedSpinMultiplier) 적용 안함			
+		AngularVelocity += angularDelta * SpinToRotateMultiply;	
+						
+		bContinueSubStep = false;
 	}
 	else
 	{
-		pos = nextPos;
-		return Depth;
+		// 각속도 업데이트 (시간 간격에 따라 회전 속도 감소) 
+		AngularVelocity *= BouncedSpinMultiplier; // 바운스로 인한 각속도 추가 감쇠
+		// AngularVelocity *= FMath::Pow(SpinFrictionScale, timeToHit);
+		AngularVelocity += angularDelta * SpinToRotateMultiply;
 	}
+
+	Position = Position + LinearVelocity * remainingTime;
+	ApplySpinToRotation(AngularVelocity, Rotation, Rotation, remainingTime);
+
+	HitCache.NextPos = Position;
+	HitCache.TimeToBeforeHit = timeToBeforeHit;
+	HitCache.RemainingTime = remainingTime;
+	HitCache.SnapshotIndex = CachedSnapshots.Num();
+	HitCache.BouncedDirection = LinearVelocity.GetSafeNormal();
+	HitCache.BouncedSpeed = LinearVelocity.Size();
+	HitCache.PenetrationDepth = hit.PenetrationDepth;
+	HitCache.bIsSliding = bIsSliding;
+	HitCache.AngularDelta = angularDelta;
+	HitCache.AngularDeltaSize = angularDeltaSize;
+	HitCache.bWasStuck = bIsStuck;
+	HitCache.BouncedSpin = AngularVelocity.Size();
+	HitCache.BouncedAngularVelocity = AngularVelocity;
+	CachedHits.Add(HitCache);
+
+	if (bContinueSubStep)
+	{
+		return HandleCollision(World, InvMass, CollisionShape, Position, Rotation, LinearVelocity, AngularVelocity, remainingTime, Depth + 1);
+	}
+	else
+	{
+		return Depth+1;
+	}
+	
 }
 
 #if 0 
@@ -837,17 +876,61 @@ float UBallSimulatorComponent::GetBallSpeedAtTime(float playbackTime) const
 		return 0.f;
 	}
 
-	float TotalDuration = (CachedSnapshots.Num() - 1) * SimulationStepInterval;
-	float ClampedTime = FMath::Clamp(playbackTime, 0.f, TotalDuration);
+	const float TotalDuration = (CachedSnapshots.Num() - 1) * SimulationStepInterval;
+	const float ClampedTime = FMath::Clamp(playbackTime, 0.f, TotalDuration);
+	const int32 IndexA = FMath::Clamp(FMath::FloorToInt(ClampedTime / SimulationStepInterval), 0, CachedSnapshots.Num() - 2);
+	const int32 IndexB = IndexA + 1;
+	const float LocalAlpha = (ClampedTime - IndexA * SimulationStepInterval) / SimulationStepInterval;
+	const int32 hitCountB = CachedSnapshots[IndexB].hitCount;
 
-	int32 IndexA = FMath::Clamp(FMath::FloorToInt(ClampedTime / SimulationStepInterval), 0, CachedSnapshots.Num() - 2);
-	int32 IndexB = IndexA + 1;
-	float LocalAlpha = (ClampedTime - IndexA * SimulationStepInterval) / SimulationStepInterval;
+	// 만약 IndexB에서 충돌이 발생했었다면
+	if (hitCountB > 0)
+	{
+		const int BounceIndex = CachedSnapshots[IndexB].BounceIndex;
+		
+		if (CachedBounces.IsValidIndex(BounceIndex) == false)
+		{
+			UE_LOG(LogBallSimulatorComponent, Warning, TEXT("Invalid BounceIndex: %d"), BounceIndex);
+			return 0.f;
+		}
 
-	float SpeedA = CachedSnapshots[IndexA].Speed;
-	float SpeedB = CachedSnapshots[IndexB].Speed;
+		const FBallBounce& BallBounce = CachedBounces[BounceIndex];
 
-	return FMath::Lerp(SpeedA, SpeedB, LocalAlpha);
+		// TimeToBeforeHit 사용하여 바운스 후 보간
+		const float TimeToHit = BallBounce.TimeToBeforeHit; // 바운스 전까지 남은 시간
+
+		// A -> A+TimeToHit 까지의 구간 (바운스 전 상태)
+		if (ClampedTime <= CachedSnapshots[IndexA].Time + TimeToHit)
+		{
+			// 바운스 전: IndexA ~ A+TimeToHit까지 보간
+			const float SpeedA = CachedSnapshots[IndexA].Speed;
+			const float BouncedSpeed = BallBounce.BouncedSpeed; // 바운스 후 반발 속도 적용
+
+			// A ~ A+TimeToHit 속도를 보간
+			float interpolatedSpeed = FMath::Lerp(SpeedA, BouncedSpeed, LocalAlpha);
+
+			return interpolatedSpeed;
+		}
+		else
+		{
+			// A+TimeToHit -> B 까지의 구간 (바운스 후 상태)				
+			const float BouncedSpeed = BallBounce.BouncedSpeed; // 바운스 후 반발 속도
+			const float SpeedB = CachedSnapshots[IndexB].Speed; // B의 속도
+
+			// 바운스 후 속도를 보간
+			float interpolatedSpeed = FMath::Lerp(BouncedSpeed, SpeedB, LocalAlpha);
+
+			return interpolatedSpeed;		
+		}
+	}
+	else
+	{
+		// 충돌이 없었다면 A 와 B 사이를 보간	
+		const float SpeedA = CachedSnapshots[IndexA].Speed;
+		const float SpeedB = CachedSnapshots[IndexB].Speed;
+
+		return FMath::Lerp(SpeedA, SpeedB, LocalAlpha);
+	}
 }
 
 void UBallSimulatorComponent::GetBallVelocityAtTime(float playbackTime,
@@ -961,3 +1044,63 @@ void UBallSimulatorComponent::GetBallPositionAndRotationAtTime(
 	const FQuat& RotB = CachedSnapshots[IndexB].Rotation;
 	OutRotation = FQuat::Slerp(RotA, RotB, LocalAlpha).Rotator();
 }
+
+#if 0
+bool GetInterpolationPoints(float ClampedTime, int32& prevIndex, int32& nextIndex, bool& IsBounced, float& SpeedA, float& SpeedB, FVector& VelocityA, FVector& VelocityB,
+	FVector& PositionA, FVector& PositionB, FQuat& RotationA, FQuat& RotationB,
+	float& BouncedSpeed) const
+{
+	const int32 TotalSnapshots = CachedSnapshots.Num();
+	if (TotalSnapshots < 2 || SimulationStepInterval <= 0.f)
+	{
+		return false;
+	}
+
+	// IndexA, IndexB 계산
+	prevIndex = FMath::Clamp(FMath::FloorToInt(ClampedTime / SimulationStepInterval), 0, TotalSnapshots - 2);
+	nextIndex = prevIndex + 1;
+
+	// Speed, Velocity, Position, Rotation 가져오기
+	SpeedA = CachedSnapshots[prevIndex].Speed;
+	SpeedB = CachedSnapshots[nextIndex].Speed;
+
+	VelocityA = CachedSnapshots[prevIndex].Direction * CachedSnapshots[prevIndex].Speed;
+	VelocityB = CachedSnapshots[nextIndex].Direction * CachedSnapshots[nextIndex].Speed;
+
+	PositionA = CachedSnapshots[prevIndex].Position;
+	PositionB = CachedSnapshots[nextIndex].Position;
+
+	RotationA = CachedSnapshots[prevIndex].Rotation;
+	RotationB = CachedSnapshots[nextIndex].Rotation;
+
+	BouncedSpeed = 0.f; // 기본값 설정
+
+	// 충돌 여부 확인 (IndexB에서 충돌이 발생했다면)
+	const int32 hitCountB = CachedSnapshots[nextIndex].hitCount;
+	IsBounced = (hitCountB > 0)
+	if (IsBounced)
+	{
+		// 해당 스냅샷에서 바운스 정보를 가져옴
+		const int BounceIndex = CachedSnapshots[nextIndex].BounceIndex;
+
+		// 바운스 인덱스 유효성 체크
+		if (CachedBounces.IsValidIndex(BounceIndex) == false)
+		{
+			UE_LOG(LogBallSimulatorComponent, Warning, TEXT("Invalid BounceIndex: %d"), BounceIndex);
+			return false;
+		}
+
+		const FBallBounce& BallBounce = CachedBounces[BounceIndex];
+
+		// 바운스 후 반발 속도 설정
+		BouncedSpeed = BallBounce.BouncedSpeed;
+
+		// 바운스 후 업데이트된 Velocity, Position, Rotation을 가져오기
+		VelocityB = BallBounce.BouncedVelocity;
+		PositionB = BallBounce.BouncedPosition;
+		RotationB = BallBounce.BouncedRotation;
+	}
+
+	return true;
+}
+#endif
