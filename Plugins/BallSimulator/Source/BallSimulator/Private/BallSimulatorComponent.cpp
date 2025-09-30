@@ -1013,16 +1013,19 @@ bool UBallSimulatorComponent::GetBallPositionAndRotationAtSplineTime(
 }
 
 void UBallSimulatorComponent::GetBallPositionAndRotationAtTime(
+bool UBallSimulatorComponent::GetBallPositionAndRotationAtTime(
 	float playbackTime,
 	FVector& OutPosition,
 	FRotator& OutRotation,
 	int32& OutIndexA, int32& OutIndexB) const
+	int32& OutPrevIndex, int32& OutNextIndex) const
 {
 	if (CachedSnapshots.Num() < 2 || SimulationStepInterval <= 0.f)
 	{
 		OutPosition = FVector::ZeroVector;
 		OutRotation = FRotator::ZeroRotator;
 		return;
+		return false;
 	}
 
 	float TotalDuration = (CachedSnapshots.Num() - 1) * SimulationStepInterval;
@@ -1033,22 +1036,49 @@ void UBallSimulatorComponent::GetBallPositionAndRotationAtTime(
 
 	OutIndexA = IndexA;
 	OutIndexB = IndexB;
+	// 회전 및 충돌 처리를 위한 보간: GetPlaybackFrame 호출
+	FPlaybackFrame PlaybackFrame;
+	bool bSuccess = GetPlaybackFrame(ClampedTime, PlaybackFrame);
+	if (!bSuccess)
+	{
+		OutPosition = FVector::ZeroVector;
+		OutRotation = FRotator::ZeroRotator;
+		return false;
+	}
+
+	OutPrevIndex = PlaybackFrame.prevIndex;
+	OutNextIndex = PlaybackFrame.nextIndex;
+	float TimeA = PlaybackFrame.TimeA;
+	float TimeB = PlaybackFrame.TimeB;
+
+	float LocalAlpha = (playbackTime - TimeA) / (TimeB - TimeA);
+	LocalAlpha = FMath::Clamp(LocalAlpha, 0.f, 1.f);
 
 	// 위치 보간
 	FVector PosA = CachedSnapshots[IndexA].Position;
 	FVector PosB = CachedSnapshots[IndexB].Position;
+	FVector PosA = PlaybackFrame.PositionA;
+	FVector PosB = PlaybackFrame.PositionB;
 	OutPosition = FMath::Lerp(PosA, PosB, LocalAlpha);
 
 	// 회전 보간 (Quaternion 사용)
 	const FQuat& RotA = CachedSnapshots[IndexA].Rotation;
 	const FQuat& RotB = CachedSnapshots[IndexB].Rotation;
+	const FQuat& RotA = PlaybackFrame.RotationA;
+	const FQuat& RotB = PlaybackFrame.RotationB;
 	OutRotation = FQuat::Slerp(RotA, RotB, LocalAlpha).Rotator();
+
+	// 보간 없이 현재 각속도로 회전 적용
+	//ApplySpinToRotation(PlaybackFrame.AngularVelocity, OutRotation, OutRotation, DeltaTime);
+
+	return true;
 }
 
 #if 0
 bool GetInterpolationPoints(float ClampedTime, int32& prevIndex, int32& nextIndex, bool& IsBounced, float& SpeedA, float& SpeedB, FVector& VelocityA, FVector& VelocityB,
 	FVector& PositionA, FVector& PositionB, FQuat& RotationA, FQuat& RotationB,
 	float& BouncedSpeed) const
+bool UBallSimulatorComponent::GetPlaybackFrame(float InPlaybackTime, FPlaybackFrame& OutFrame) const
 {
 	const int32 TotalSnapshots = CachedSnapshots.Num();
 	if (TotalSnapshots < 2 || SimulationStepInterval <= 0.f)
@@ -1063,9 +1093,13 @@ bool GetInterpolationPoints(float ClampedTime, int32& prevIndex, int32& nextInde
 	// Speed, Velocity, Position, Rotation 가져오기
 	SpeedA = CachedSnapshots[prevIndex].Speed;
 	SpeedB = CachedSnapshots[nextIndex].Speed;
+	OutFrame.prevIndex = FMath::Clamp(FMath::FloorToInt(InPlaybackTime / SimulationStepInterval), 0, TotalSnapshots - 2);
+	OutFrame.nextIndex = OutFrame.prevIndex + 1;
 
 	VelocityA = CachedSnapshots[prevIndex].Direction * CachedSnapshots[prevIndex].Speed;
 	VelocityB = CachedSnapshots[nextIndex].Direction * CachedSnapshots[nextIndex].Speed;
+	OutFrame.TimeA = OutFrame.prevIndex * SimulationStepInterval;
+	OutFrame.TimeB = OutFrame.TimeA + SimulationStepInterval;
 
 	PositionA = CachedSnapshots[prevIndex].Position;
 	PositionB = CachedSnapshots[nextIndex].Position;
@@ -1074,33 +1108,124 @@ bool GetInterpolationPoints(float ClampedTime, int32& prevIndex, int32& nextInde
 	RotationB = CachedSnapshots[nextIndex].Rotation;
 
 	BouncedSpeed = 0.f; // 기본값 설정
+	// 바운스가 없을경우 Prev , Next Snapshot 을 A,B로 사용
+	const FBallSnapshot& prevSnapshot = CachedSnapshots[OutFrame.prevIndex];
+	const FBallSnapshot& nextSnapshot = CachedSnapshots[OutFrame.nextIndex];
 
 	// 충돌 여부 확인 (IndexB에서 충돌이 발생했다면)
 	const int32 hitCountB = CachedSnapshots[nextIndex].hitCount;
 	IsBounced = (hitCountB > 0)
 	if (IsBounced)
+	const int32 hitCountB = nextSnapshot.hitCount;
+	OutFrame.IsBounced = (hitCountB > 0);
+	if (OutFrame.IsBounced)
 	{
 		// 해당 스냅샷에서 바운스 정보를 가져옴
 		const int BounceIndex = CachedSnapshots[nextIndex].BounceIndex;
+		const int32 HitStartIndex = nextSnapshot.HitStartIndex;
+		const int32 HitLastIndex = nextSnapshot.HitLastIndex;
 
 		// 바운스 인덱스 유효성 체크
 		if (CachedBounces.IsValidIndex(BounceIndex) == false)
+		if (CachedHits.IsValidIndex(HitStartIndex) == false ||
+			CachedHits.IsValidIndex(HitLastIndex) == false)
 		{
 			UE_LOG(LogBallSimulatorComponent, Warning, TEXT("Invalid BounceIndex: %d"), BounceIndex);
+			UE_LOG(LogBallSimulatorComponent, Warning, TEXT("유효한 충돌 인덱스를 찾을 수 없습니다."));
 			return false;
 		}
 
 		const FBallBounce& BallBounce = CachedBounces[BounceIndex];
+		// TimeToBeforeHit 값을 누적하여 가장 가까운 충돌 시점을 찾기 위한 변수
+		float accumulatedHitTime = OutFrame.TimeA;
+		int32 closestAfterHitIndex = -1;
+		float closestAfterHitTime = 0.f;
+		int32 closestBeforeHitIndex = -1;
+		float closestBeforeHitTime = 0.f;
+		for (int32 i = HitStartIndex; i <= HitLastIndex; ++i)
+		{
+			// HitStartIndex부터 HitLastIndex까지 루프 돌면서 충돌 시간 누적
+			const FBallBounce& Hit = CachedHits[i];
+			accumulatedHitTime += Hit.TimeToBeforeHit;
+
+			// AfterHit (InPlaybackTime 이후의 충돌)
+			if (accumulatedHitTime >= InPlaybackTime)
+			{
+				closestAfterHitIndex = i;
+				closestAfterHitTime = accumulatedHitTime;
+				break;
+			}
+			else if (accumulatedHitTime <= InPlaybackTime)
+			{
+				// BeforeHit (InPlaybackTime 이전의 충돌)
+				closestBeforeHitIndex = i;
+				closestBeforeHitTime = accumulatedHitTime;
+			}
+		}
+
+		if (CachedHits.IsValidIndex(closestBeforeHitIndex) == true)
+		{
+			// BeforeHitTime < PlaybackTime < ???
+			const FBallBounce& closestBeforeHit = CachedHits[closestBeforeHitIndex];
+			OutFrame.TimeA = closestBeforeHitTime;
+			OutFrame.AngularVelocity = closestBeforeHit.BouncedAngularVelocity;			
+			OutFrame.PositionA = closestBeforeHit.HitBeforePosition;
+			OutFrame.RotationA = closestBeforeHit.HitBeforeRotation;			
+			OutFrame.SpeedA = closestBeforeHit.BouncedSpeed;
+		}
+		else
+		{
+			// BeforeHit이 없으면 SnapshotA 사용			
+			// prevSnapshot.Time < PlaybackTime
+			OutFrame.TimeA = prevSnapshot.Time;
+			OutFrame.SpeedA = prevSnapshot.Speed;
+			OutFrame.PositionA = prevSnapshot.Position;
+			OutFrame.RotationA = prevSnapshot.Rotation;
+			OutFrame.AngularVelocity = prevSnapshot.SpinAxis * prevSnapshot.SpinSpeed;
+		}
 
 		// 바운스 후 반발 속도 설정
 		BouncedSpeed = BallBounce.BouncedSpeed;
+		if (CachedHits.IsValidIndex(closestAfterHitIndex) == true)
+		{
+			// ??? < PlaybackTime < AfterHitTime
+			const FBallBounce& closestAfterHit = CachedHits[closestAfterHitIndex];
 
 		// 바운스 후 업데이트된 Velocity, Position, Rotation을 가져오기
 		VelocityB = BallBounce.BouncedVelocity;
 		PositionB = BallBounce.BouncedPosition;
 		RotationB = BallBounce.BouncedRotation;
+			OutFrame.TimeB = closestAfterHitTime;
+			OutFrame.SpeedB = closestAfterHit.BouncedSpeed;
+			OutFrame.PositionB = closestAfterHit.HitBeforePosition;
+			OutFrame.RotationB = closestAfterHit.HitBeforeRotation;
+		}
+		else
+		{
+			// AfterHit이 없으면 SnapshotB 사용
+			// PlaybackTime < nextSnapshot.Time
+			OutFrame.TimeB = nextSnapshot.Time;
+			OutFrame.PositionB = nextSnapshot.Position;
+			OutFrame.RotationB = nextSnapshot.Rotation;
+			OutFrame.SpeedB = nextSnapshot.Speed;
+		}
+	}
+	else
+	{
+		// Speed, Velocity, Position, Rotation 가져오기
+		OutFrame.TimeA = prevSnapshot.Time;
+		OutFrame.TimeB = nextSnapshot.Time;
+		OutFrame.SpeedA = prevSnapshot.Speed;
+		OutFrame.SpeedB = nextSnapshot.Speed;
+		OutFrame.PositionA = prevSnapshot.Position;
+		OutFrame.PositionB = nextSnapshot.Position;
+		OutFrame.RotationA = prevSnapshot.Rotation;
+		OutFrame.RotationB = nextSnapshot.Rotation;
+		OutFrame.AngularVelocity = prevSnapshot.Direction * prevSnapshot.Speed;
+		OutFrame.SpeedB = nextSnapshot.Speed;
 	}
 
 	return true;
+
 }
 #endif

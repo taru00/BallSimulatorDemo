@@ -56,6 +56,12 @@ struct FBallBounce
     FVector StartPos;
 
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+    FVector HitBeforePosition;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+    FQuat HitBeforeRotation;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
     FVector ImpactPoint;
     
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
@@ -130,14 +136,59 @@ struct FBallSnapshot
     int hitCount;
 
     UPROPERTY(VisibleAnywhere, BlueprintReadWrite)
-    int BounceIndex;
+    int HitStartIndex;
 
+    UPROPERTY(VisibleAnywhere, BlueprintReadWrite)
+    int HitLastIndex;
+    
     UPROPERTY(VisibleAnywhere, BlueprintReadWrite)
     FVector SpinAxis;
 
     // 축구 회전 킥 기준 20~90 rad/s
     UPROPERTY(VisibleAnywhere, BlueprintReadWrite)
     float SpinSpeed;
+};
+
+USTRUCT(BlueprintType)
+struct FPlaybackFrame
+{
+    GENERATED_BODY()
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+    int32 prevIndex;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+    int32 nextIndex;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+    bool IsBounced;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+    float TimeA;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+    float TimeB;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+    float SpeedA;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+    float SpeedB;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+    FVector AngularVelocity;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+    FVector PositionA;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+    FVector PositionB;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+    FQuat RotationA;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+    FQuat RotationB;
 };
 
 UCLASS( ClassGroup=(Custom), meta=(BlueprintSpawnableComponent) )
@@ -198,7 +249,7 @@ public:
     void ConvertSnapshotsToBezierSpline(const TArray<FBallSnapshot>& Snapshots, USplineComponent* SplineComponent) const;    
 
     UFUNCTION(BlueprintCallable, Category = "Ballistic Physics Simulator")
-    void GetBallPositionAndRotationAtTime(
+    bool GetBallPositionAndRotationAtTime(
         float playbackTime,
         FVector& OutPosition,
         FRotator& OutRotation,
@@ -217,6 +268,9 @@ public:
     UFUNCTION(BlueprintCallable, Category = "Ballistic Physics Simulator")    
     void GetBallVelocityAtTime(float playbackTime, FVector& LinearVelocity,
         FVector& AngularVeloticy) const;
+
+    UFUNCTION(BlueprintCallable, Category = "Ballistic Physics Simulator")
+    bool GetPlaybackFrame(float InPlaybackTime, FPlaybackFrame& OutFrame) const;
 
 	// 최소 속도 이하로 떨어지면 시뮬레이션 종료
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ballistic Physics Simulator")
