@@ -226,12 +226,12 @@ public:
         UWorld* World,
         const float InvMass,
         const FCollisionShape& CollisionShape,
-        FVector& Pos,  
-        FQuat& Rot,
+        FVector& Position,  
+        FQuat& Rotation,
         FVector& LinearVelocity,
         FVector& AngularVelocity,
         const float DeltaTime,        
-        int32 Depth = 0);
+        int32 HitCount = 0);
  
     //bool ResolvePenetration(const FVector& ProposedAdjustment, const FHitResult& Hit, const FQuat& NewRotationQuat);
 
@@ -266,7 +266,7 @@ public:
     float GetBallSpeedAtTime(float playbackTime) const;
 
     UFUNCTION(BlueprintCallable, Category = "Ballistic Physics Simulator")    
-    void GetBallVelocityAtTime(float playbackTime, FVector& LinearVelocity,
+    void GetBallAngularVelocityAtTime(float playbackTime, FVector& LinearVelocity,
         FVector& AngularVeloticy) const;
 
     UFUNCTION(BlueprintCallable, Category = "Ballistic Physics Simulator")
