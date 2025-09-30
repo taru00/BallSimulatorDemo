@@ -61,7 +61,4 @@ protected:
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
     UWorld* SimWorld;
 
-    // 별도 Physics 씬 멤버 변수
-    //TUniquePtr<FPhysScene_Chaos> SimPhysicsScene;
-    //TUniquePtr<FChaosSolver> SimSolver;
 };
