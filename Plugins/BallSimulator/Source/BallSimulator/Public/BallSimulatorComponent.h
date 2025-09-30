@@ -56,10 +56,10 @@ struct FBallBounce
     FVector StartPos;
 
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
-    FVector HitBeforePosition;
+    FVector HitPosition;
 
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
-    FQuat HitBeforeRotation;
+    FQuat HitRotation;
 
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
     FVector ImpactPoint;
@@ -72,7 +72,7 @@ struct FBallBounce
     FVector NextPos;
     
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
-    float TimeToBeforeHit;
+    float TimeToAfterHit;
 
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
     float RemainingTime;
@@ -179,6 +179,12 @@ struct FPlaybackFrame
     FVector AngularVelocity;
 
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+    FVector AngularVelocityA;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+    FVector AngularVelocityB;
+    
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
     FVector PositionA;
 
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
@@ -239,11 +245,11 @@ public:
     void GetAxisAndAngle(const FQuat& InRotation, FVector& OutSpinAxis, float& OutSpin) const;
     
     UFUNCTION(BlueprintCallable, Category = "Ballistic Physics Simulator")
-    void GetQuaternion(const FVector& InSpin, FQuat& OutQuaternion, const float RadToRPM = 9.5493f) const;
+    void GetQuaternion(const FVector& InSpin, FQuat& OutQuaternion, const float RadToRPM = 1.f) const;
 
     // spin 벡터를 회전 쿼터니언으로 변환하는 함수    
     UFUNCTION(BlueprintCallable, Category = "Ballistic Physics Simulator")
-    void ApplySpinToRotation(const FVector& InSpin, const FQuat& InRotation, FQuat& OutRotation, const float StepInterval = 0.033f, const float RadToRPM = 9.5493f) const;
+    void ApplySpinToRotation(const FVector& InSpin, const FQuat& InRotation, FQuat& OutRotation, const float StepInterval = 0.033f, const float RadToRPM = 1.f) const;
 
     UFUNCTION(BlueprintCallable, Category = "Ballistic Physics Simulator")
     void ConvertSnapshotsToBezierSpline(const TArray<FBallSnapshot>& Snapshots, USplineComponent* SplineComponent) const;    

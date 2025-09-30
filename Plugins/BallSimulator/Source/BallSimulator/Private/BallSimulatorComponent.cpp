@@ -286,7 +286,7 @@ int UBallSimulatorComponent::HandleCollision(
 
 	// 침투 방지 또는 해결을 위한 소량의 여유 마진
 	const float SmallMargin = KINDA_SMALL_NUMBER;
-	const float timeToBeforeHit = DeltaTime * hitTimeRatio + SmallMargin;
+	const float timeToAfterHit = DeltaTime * hitTimeRatio + SmallMargin;
 
 	//const float PenetrationVelocityDamping = 0.5f;    // 감속 계수		
 	const float PenetrationDepthThreshold = 0.1f;     // 끼인 것으로 판단할 최소 깊이
@@ -320,33 +320,33 @@ int UBallSimulatorComponent::HandleCollision(
 	HitCache.Hit = hit;
 
 	// 충돌 직전까지의 속도 계산
-	LinearVelocity = prevLinearVelocity + GravityVector * timeToBeforeHit;
-	LinearVelocity = LinearVelocity * FMath::Clamp(1.0f - LinearDamping * timeToBeforeHit, 0.0f, 1.0f);
-	AngularVelocity = prevAngularVelocity * FMath::Clamp(1.0f - AngularDamping * timeToBeforeHit, 0.0f, 1.0f);
+	LinearVelocity = prevLinearVelocity + GravityVector * timeToAfterHit;
+	LinearVelocity = LinearVelocity * FMath::Clamp(1.0f - LinearDamping * timeToAfterHit, 0.0f, 1.0f);
+	AngularVelocity = prevAngularVelocity * FMath::Clamp(1.0f - AngularDamping * timeToAfterHit, 0.0f, 1.0f);
 
 	/* 출동 직전 지점 까지 위치, 회전 업데이트
 	pos---------*----------------nextPos
 				↑
-				hit.Location(≈ Lerp(pos, nextPos, hit.Time - SmallMargin))
+				hit.Location(≈ Lerp(pos, nextPos, hit.Time + SmallMargin))
 	*/
-	FVector hitBeforePos = Position + LinearVelocity * timeToBeforeHit;
-	HitCache.HitBeforePosition = hitBeforePos;
-	Position = hitBeforePos;
-	ApplySpinToRotation(AngularVelocity, Rotation, Rotation, timeToBeforeHit);
-	HitCache.HitBeforeRotation = Rotation;
+	FVector hitAfterPos = Position + LinearVelocity * timeToAfterHit;
+	HitCache.HitPosition = hitAfterPos;
+	Position = hitAfterPos;
+	ApplySpinToRotation(AngularVelocity, Rotation, Rotation, timeToAfterHit);
+	HitCache.HitRotation = Rotation;
 
 	// 약간 더 이동 (충돌면에 살짝 박히는 현상 방지)
-	//hitBeforePos += HitCache.BouncedDirection * HitCache.BouncedSpeed * KINDA_SMALL_NUMBER;
-	//hitBeforePos = hit.Normal * hit.PenetrationDepth + PullBackDistance;
+	//hitAfterPos += HitCache.BouncedDirection * HitCache.BouncedSpeed * KINDA_SMALL_NUMBER;
+	//hitAfterPos = hit.Normal * hit.PenetrationDepth + PullBackDistance;
 
 	// 남은 시간으로 재귀 호출
-	const float remainingTime = DeltaTime - timeToBeforeHit;
+	const float remainingTime = DeltaTime - timeToAfterHit;
 
 	// 히트 노멀 방향으로의 속도 비율 (음수이면 충돌면 쪽으로 이동 중)
 	const float LVdotN = (LinearVelocity.GetSafeNormal() | hit.ImpactNormal);
 
 	bool bIsSliding = false;
-	const bool bMultiHit = (World->GetTimeSeconds() - PreviousHitTime <= UE_KINDA_SMALL_NUMBER && timeToBeforeHit <= UE_KINDA_SMALL_NUMBER);
+	const bool bMultiHit = (World->GetTimeSeconds() - PreviousHitTime <= UE_KINDA_SMALL_NUMBER && timeToAfterHit <= UE_KINDA_SMALL_NUMBER);
 
 	// if velocity still into wall (after HandleBlockingHit() had a chance to adjust), slide along wall
 	// 짧은 시간에 (주로 SubStep 에서) 연속적으로 hit가 발생  && 이전 충돌과 거의 동일한 노멀 방향
@@ -380,7 +380,7 @@ int UBallSimulatorComponent::HandleCollision(
 	// 충돌 임펄스 계산 (질량, 관성 텐서 반영)
 	// J = −((1+e)vRel) ​​/ (m⁻¹​+n⋅((I⁻¹(r×n))×r)(1+e))		
 	// 1) 접촉점 P 에서 구 질량중심 C 로 가는 벡터 (접촉점 - 구 중심) r = P - C
-	const FVector hitPointToCenter = hit.ImpactPoint - hitBeforePos;
+	const FVector hitPointToCenter = hit.ImpactPoint - hitAfterPos;
 
 	// 구의 접촉점 Tangential 속도 (스핀에 따른 속도 변화 적용)
 	const FVector ContactAngularVelocity = FVector::CrossProduct(AngularVelocity, hitPointToCenter);
@@ -482,7 +482,7 @@ int UBallSimulatorComponent::HandleCollision(
 		}
 	}
 
-	HitCache.TimeToBeforeHit = timeToBeforeHit;
+	HitCache.TimeToAfterHit = timeToAfterHit;
 	HitCache.RemainingTime = remainingTime;
 	HitCache.SnapshotIndex = CachedSnapshots.Num();
 	HitCache.BouncedDirection = LinearVelocity.GetSafeNormal();
@@ -910,8 +910,8 @@ float UBallSimulatorComponent::GetBallSpeedAtTime(float playbackTime) const
 
 		const FBallBounce& BallBounce = CachedBounces[BounceIndex];
 
-		// TimeToBeforeHit 사용하여 바운스 후 보간
-		const float TimeToHit = BallBounce.TimeToBeforeHit; // 바운스 전까지 남은 시간
+		// TimeToAfterHit 사용하여 바운스 후 보간
+		const float TimeToHit = BallBounce.TimeToAfterHit; // 바운스 전까지 남은 시간
 
 		// A -> A+TimeToHit 까지의 구간 (바운스 전 상태)
 		if (ClampedTime <= CachedSnapshots[IndexA].Time + TimeToHit)
@@ -1066,13 +1066,15 @@ bool UBallSimulatorComponent::GetBallPositionAndRotationAtTime(
 	OutPosition = FMath::Lerp(PosA, PosB, LocalAlpha);
 
 	// 회전 보간 (Quaternion 사용)
-	const FQuat& RotA = PlaybackFrame.RotationA;
-	const FQuat& RotB = PlaybackFrame.RotationB;
-	OutRotation = FQuat::Slerp(RotA, RotB, LocalAlpha).Rotator();
-
+	//const FQuat& RotA = PlaybackFrame.RotationA;
+	//const FQuat& RotB = PlaybackFrame.RotationB;
+	//OutRotation = FQuat::Slerp(RotA, RotB, LocalAlpha).Rotator();
+	
 	// 보간 없이 현재 각속도로 회전 적용
-	//ApplySpinToRotation(PlaybackFrame.AngularVelocity, OutRotation, OutRotation, DeltaTime);
-
+	float deltaTime = playbackTime - PlaybackFrame.TimeA;
+	FQuat tempRotation;
+	ApplySpinToRotation(PlaybackFrame.AngularVelocity, PlaybackFrame.RotationA, tempRotation, deltaTime);
+	OutRotation = tempRotation.Rotator();
 	return true;
 }
 
@@ -1110,63 +1112,66 @@ bool UBallSimulatorComponent::GetPlaybackFrame(float InPlaybackTime, FPlaybackFr
 			return false;
 		}
 
-		// TimeToBeforeHit 값을 누적하여 가장 가까운 충돌 시점을 찾기 위한 변수
+		// TimeToNextHit 값을 누적하여 가장 가까운 충돌 시점을 찾기 위한 변수
 		float accumulatedHitTime = OutFrame.TimeA;
-		int32 closestAfterHitIndex = -1;
-		float closestAfterHitTime = 0.f;
-		int32 closestBeforeHitIndex = -1;
-		float closestBeforeHitTime = 0.f;
+		int32 closestNextHitIndex = -1;
+		float closestNextHitTime = 0.f;
+		int32 closestPrevHitIndex = -1;
+		float closestPrevHitTime = 0.f;
 		for (int32 i = HitStartIndex; i <= HitLastIndex; ++i)
 		{
 			// HitStartIndex부터 HitLastIndex까지 루프 돌면서 충돌 시간 누적
 			const FBallBounce& Hit = CachedHits[i];
-			accumulatedHitTime += Hit.TimeToBeforeHit;
+			accumulatedHitTime += Hit.TimeToAfterHit;
 
 			// AfterHit (InPlaybackTime 이후의 충돌)
 			if (accumulatedHitTime >= InPlaybackTime)
 			{
-				closestAfterHitIndex = i;
-				closestAfterHitTime = accumulatedHitTime;
+				closestNextHitIndex = i;
+				closestNextHitTime = accumulatedHitTime;
 				break;
 			}
 			else if (accumulatedHitTime <= InPlaybackTime)
 			{
-				// BeforeHit (InPlaybackTime 이전의 충돌)
-				closestBeforeHitIndex = i;
-				closestBeforeHitTime = accumulatedHitTime;
+				// PrevHit (InPlaybackTime 이전의 충돌)
+				closestPrevHitIndex = i;
+				closestPrevHitTime = accumulatedHitTime;
 			}
 		}
 
-		if (CachedHits.IsValidIndex(closestBeforeHitIndex) == true)
+		if (CachedHits.IsValidIndex(closestPrevHitIndex) == true)
 		{
-			// BeforeHitTime < PlaybackTime < ???
-			const FBallBounce& closestBeforeHit = CachedHits[closestBeforeHitIndex];
-			OutFrame.TimeA = closestBeforeHitTime;
-			OutFrame.AngularVelocity = closestBeforeHit.BouncedAngularVelocity;			
-			OutFrame.PositionA = closestBeforeHit.HitBeforePosition;
-			OutFrame.RotationA = closestBeforeHit.HitBeforeRotation;			
-			OutFrame.SpeedA = closestBeforeHit.BouncedSpeed;
+			// PrevHitTime < PlaybackTime < ???
+			const FBallBounce& closestPrevHit = CachedHits[closestPrevHitIndex];
+			OutFrame.TimeA = closestPrevHitTime;
+			OutFrame.AngularVelocity = closestPrevHit.BouncedAngularVelocity;			
+			OutFrame.AngularVelocityA = OutFrame.AngularVelocity;
+			OutFrame.PositionA = closestPrevHit.HitPosition;
+			OutFrame.RotationA = closestPrevHit.HitRotation;			
+			OutFrame.SpeedA = closestPrevHit.BouncedSpeed;
 		}
 		else
 		{
-			// BeforeHit이 없으면 SnapshotA 사용			
+			// PrevHit이 없으면 SnapshotA 사용			
 			// prevSnapshot.Time < PlaybackTime
 			OutFrame.TimeA = prevSnapshot.Time;
 			OutFrame.SpeedA = prevSnapshot.Speed;
 			OutFrame.PositionA = prevSnapshot.Position;
 			OutFrame.RotationA = prevSnapshot.Rotation;
 			OutFrame.AngularVelocity = prevSnapshot.SpinAxis * prevSnapshot.SpinSpeed;
+			OutFrame.AngularVelocityA = OutFrame.AngularVelocity;
 		}
 
-		if (CachedHits.IsValidIndex(closestAfterHitIndex) == true)
+		if (CachedHits.IsValidIndex(closestNextHitIndex) == true)
 		{
 			// ??? < PlaybackTime < AfterHitTime
-			const FBallBounce& closestAfterHit = CachedHits[closestAfterHitIndex];
+			const FBallBounce& closestNextHit = CachedHits[closestNextHitIndex];
 
-			OutFrame.TimeB = closestAfterHitTime;
-			OutFrame.SpeedB = closestAfterHit.BouncedSpeed;
-			OutFrame.PositionB = closestAfterHit.HitBeforePosition;
-			OutFrame.RotationB = closestAfterHit.HitBeforeRotation;
+			OutFrame.TimeB = closestNextHitTime;
+			OutFrame.SpeedB = closestNextHit.BouncedSpeed;
+			OutFrame.PositionB = closestNextHit.HitPosition;
+			OutFrame.RotationB = closestNextHit.HitRotation;
+			OutFrame.AngularVelocityB = closestNextHit.BouncedAngularVelocity;
 		}
 		else
 		{
@@ -1176,6 +1181,7 @@ bool UBallSimulatorComponent::GetPlaybackFrame(float InPlaybackTime, FPlaybackFr
 			OutFrame.PositionB = nextSnapshot.Position;
 			OutFrame.RotationB = nextSnapshot.Rotation;
 			OutFrame.SpeedB = nextSnapshot.Speed;
+			OutFrame.AngularVelocityB = nextSnapshot.SpinAxis * nextSnapshot.SpinSpeed;
 		}
 	}
 	else
@@ -1189,7 +1195,9 @@ bool UBallSimulatorComponent::GetPlaybackFrame(float InPlaybackTime, FPlaybackFr
 		OutFrame.PositionB = nextSnapshot.Position;
 		OutFrame.RotationA = prevSnapshot.Rotation;
 		OutFrame.RotationB = nextSnapshot.Rotation;
-		OutFrame.AngularVelocity = prevSnapshot.Direction * prevSnapshot.Speed;
+		OutFrame.AngularVelocity = prevSnapshot.SpinAxis * prevSnapshot.SpinSpeed;
+		OutFrame.AngularVelocityA = OutFrame.AngularVelocity;
+		OutFrame.AngularVelocityB = nextSnapshot.SpinAxis * nextSnapshot.SpinSpeed;
 		OutFrame.SpeedB = nextSnapshot.Speed;
 	}
 
