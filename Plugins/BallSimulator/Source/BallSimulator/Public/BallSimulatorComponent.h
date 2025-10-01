@@ -97,9 +97,6 @@ struct FBallBounce
     float AngularDeltaSize;
 
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
-    FVector FrictionDelta;
-
-    UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
     float PenetrationDepth;
 };
 
@@ -230,6 +227,7 @@ public:
 
     int HandleCollision(
         UWorld* World,
+        const int stepIndex,
         const float InvMass,
         const FCollisionShape& CollisionShape,
         FVector& Position,  
@@ -298,13 +296,13 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ballistic Physics Simulator")
     float LinearDamping = 0.05f;
 
-	// 회전에 대한 저항 계수 (0.1 이면 초당 10% 감쇠)
+	// 회전에 대한 저항 계수 (0.01 이면 초당 1% 감쇠)
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ballistic Physics Simulator")
-    float AngularDamping = 0.1f;
+    float AngularDamping = 0.01f;
 
 	// 바운스시 회전 속도 감쇠 조절 (0.7 이면 70% 유지됨)
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ballistic Physics Simulator")
-    float BouncedSpinMultiplier = 0.65f;
+    float BouncedSpinMultiplier = 0.7f;
 
     UPROPERTY(BlueprintReadOnly, Category = "Ballistic Physics Simulator")
     TArray<FBallSnapshot> CachedSnapshots;
@@ -315,7 +313,7 @@ public:
     UPROPERTY(BlueprintReadOnly, Category = "Ballistic Physics Simulator")
     TArray<FBallBounce> CachedBounces;
     
-	// 시뮬레이션 스텝 시간 간격 (0.033 = 30Hz)
+	// 시뮬레이션 스텝 시간 간격 (0.033 = 30Hz) , 30Hz ~ 60Hz 사용 권장 
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Ballistic Physics Simulator")
     float SimulationStepInterval = 0.033f; 
 
@@ -356,7 +354,7 @@ public:
 
 	// 접촉 지점 및 마찰에 의해 발생되는 회전력 튜닝 (바운스 및 슬라이딩 에서 회전 변화량에 곱해짐)
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Ballistic Physics Simulator")
-    float SpinToRotateMultiply = 1.0f;
+    float SpinToRotateMultiply = 1.f;
 
 	// 충돌시 최대 선형 임펄스 제한
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ballistic Physics Simulator")
