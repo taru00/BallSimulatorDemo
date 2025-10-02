@@ -167,6 +167,12 @@ struct FPlaybackFrame
     float TimeB;
 
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+    FVector DirectionA;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+    FVector DirectionB;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
     float SpeedA;
 
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
@@ -174,12 +180,6 @@ struct FPlaybackFrame
 
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
     FVector AngularVelocity;
-
-    UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
-    FVector AngularVelocityA;
-
-    UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
-    FVector AngularVelocityB;
     
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
     FVector PositionA;
@@ -270,8 +270,9 @@ public:
     float GetBallSpeedAtTime(float playbackTime) const;
 
     UFUNCTION(BlueprintCallable, Category = "Ballistic Physics Simulator")    
-    void GetBallAngularVelocityAtTime(float playbackTime, FVector& LinearVelocity,
-        FVector& AngularVeloticy) const;
+    bool GetBallVelocityAtTime(float playbackTime,
+        FVector& LinearVelocity, FVector& AngularVelocity, 
+        int32& OutPrevIndex, int32& OutNextIndex) const;
 
     UFUNCTION(BlueprintCallable, Category = "Ballistic Physics Simulator")
     bool GetPlaybackFrame(float InPlaybackTime, FPlaybackFrame& OutFrame) const;
