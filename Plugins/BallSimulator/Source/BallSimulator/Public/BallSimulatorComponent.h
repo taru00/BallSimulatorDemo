@@ -98,6 +98,9 @@ struct FBallBounce
 
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
     float PenetrationDepth;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+    int SubStepIndex;
 };
 
 USTRUCT(BlueprintType)
@@ -227,7 +230,8 @@ public:
 
     int HandleCollision(
         UWorld* World,
-        const int stepIndex,
+        const int StepIndex,
+        const int SubStepIndex,
         const float InvMass,
         const FCollisionShape& CollisionShape,
         FVector& Position,  
@@ -353,9 +357,13 @@ public:
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Ballistic Physics Simulator")
     FVector ScaledInertia = FVector(0.f, 0.f, 0.f);   
 
-	// 접촉 지점 및 마찰에 의해 발생되는 회전력 튜닝 (바운스 및 슬라이딩 에서 회전 변화량에 곱해짐)
+	// 접촉 지점 및 마찰에 의해 발생되는 회전력 튜닝
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Ballistic Physics Simulator")
-    float SpinToRotateMultiply = 1.f;
+    float BounceToRotateMultiply = 1.f;
+
+	// 구르는 상태에서 접촉 지점 및 마찰에 의해 발생되는 회전력 튜닝 
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Ballistic Physics Simulator")
+	float SlideToRotateMultiply = 10.f;
 
 	// 충돌시 최대 선형 임펄스 제한
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ballistic Physics Simulator")
