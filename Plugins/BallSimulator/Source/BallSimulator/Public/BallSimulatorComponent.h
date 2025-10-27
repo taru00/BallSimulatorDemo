@@ -1,4 +1,4 @@
-﻿// © 2025 UnrealStudy. All rights reserved.
+// © 2025 UnrealStudy. All rights reserved.
 // Author: taru00@gmail.com | https://x.com/3devnote
 
 #pragma once
@@ -214,9 +214,6 @@ protected:
 	virtual void BeginPlay() override;
 
 public:	
-	// Called every frame
-	virtual void TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction) override;
-
     UFUNCTION(BlueprintCallable, Category = "Ballistic Physics Simulator", meta = (WorldContext = "Outer"))    
     void SimulateBallPhysics(        
         const UObject* WorldContextObject,
@@ -234,9 +231,7 @@ public:
     int HandleCollision(
         UWorld* World,
         const int StepIndex,
-        const int SubStepIndex,
-        const float InvMass,
-        const FCollisionShape& CollisionShape,
+        const int SubStepIndex,        
         FVector& Position,  
         FQuat& Rotation,
         FVector& LinearVelocity,
@@ -320,18 +315,7 @@ public:
 
     UPROPERTY(BlueprintReadOnly, Category = "Ballistic Physics Simulator")
     TArray<FBallBounce> CachedBounces;
-    
-	// 시뮬레이션 스텝 시간 간격 (0.033 = 30Hz) , 30Hz ~ 60Hz 사용 권장 
-    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Ballistic Physics Simulator")
-    float SimulationStepInterval = 0.033f; 
-
-    // 축구공 반지름 : 약 11 cm
-    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Ballistic Physics Simulator")
-    float SimulationBallRadius = 11.0f;
-
-    UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category = "Ballistic Physics Simulator")
-    float SimulationEndTime = 0.0f;
-    
+        
 	// 탄성 1.0 에 가까워 질수록 완전 탄성 운동에 가까워짐 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ballistic Physics Simulator")
     float DefaultRestitution = 0.7f;
@@ -366,7 +350,7 @@ public:
 
 	// 구르는 상태에서 접촉 지점 및 마찰에 의해 발생되는 회전력 튜닝 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Ballistic Physics Simulator")
-	float SlideToRotateMultiply = 1.5f;
+	float SlideToRotateMultiply = 1.0f;
 
 	// 충돌시 최대 선형 임펄스 제한
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ballistic Physics Simulator")
@@ -400,12 +384,50 @@ public:
     
     // 슬라이딩 접촉 상태 확인용 내부 변수
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Ballistic Physics Simulator")
-    FVector PreviousHitNormal;
-    
-    // 시뮬레이션 과정에서 SweepSingleByChannel 에서 사용되는 파라미터 (활용 사례: IgnoredActor 추가 등)
-    FCollisionQueryParams TraceParams;
+    FVector PreviousHitNormal;      
 
-    static constexpr int MaxAllowedSimulationStep = 1000;
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ballistic Physics Simulator|Streaming")    
+    bool EnableAutoContinueSimulation;
+
+    // 스냅샷 최대 개수 (초과 시 앞에서 ShrinkChunkSize만큼 제거)
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ballistic Physics Simulator|Streaming")    
+    int32 MaxAllowedSnapshots = 500;
+
+    // 남은 스텝이 이 값 이하가 되면 추가 시뮬레이션
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ballistic Physics Simulator|Streaming")
+    int32 MinRemainingStepsToContinue = 30;
+
+    // 플레이 타임(또는 커서)이 현재 어디까지 소비했는지 가정
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Ballistic Physics Simulator|Streaming")
+    float PlaybackTimeCursor = 0.f;
+
+    // 이어서 시뮬레이션, 스냅샷 추가
+    UFUNCTION(BlueprintCallable, Category = "Ballistic Physics Simulator|Streaming")    
+    void ContinueSimulation(const UObject* WorldContextObject, int32 InStepCount = 1);
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category = "Ballistic Physics Simulator")
+    float SimulationEndTime = 0.0f;
+
+protected:
+    // 앞부분의 스냅샷 제거 및 히트 인덱스들 보정
+    void ShrinkSnapshots(int32 RemovedCount) {};
+
     static constexpr float SplineTangentLengh = 50.f;        
     
+    // 시뮬레이션 스텝 시간 간격 (0.033 = 30Hz) , 30Hz ~ 60Hz 사용 권장 
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Ballistic Physics Simulator")
+    float SimulationStepInterval = 0.033f; 
+
+    // 축구공 반지름 : 약 11 cm
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Ballistic Physics Simulator")
+    float SimulationBallRadius = 11.0f;
+                
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Ballistic Physics Simulator|Streaming")
+    float BallMass;
+
+    float InvBallMass;
+
+    // 시뮬레이션 과정에서 SweepSingleByChannel 에서 사용되는 파라미터 (활용 사례: IgnoredActor 추가 등)    
+    FCollisionShape CollisionShape;
+    FCollisionQueryParams TraceParams;
 };
