@@ -6,10 +6,13 @@
 #include "CoreMinimal.h"
 #include "Components/ActorComponent.h"
 #include "Components/SplineComponent.h"
+
 #include "BallSimulatorComponent.generated.h"
 
 DECLARE_CYCLE_STAT(TEXT("Ballistic Physics Simulator"), STAT_BallPhysicsSimulation, STATGROUP_Game);
 DECLARE_CYCLE_STAT(TEXT("HandleCollision"), STAT_HandleCollision, STATGROUP_Game);
+
+struct FCollisionQueryParams;
 
 USTRUCT(BlueprintType)
 struct FBallBounce
@@ -299,11 +302,11 @@ public:
 
 	// 이동에 대한 저항 계수 (0.05 이면 초당 5% 감쇠)
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ballistic Physics Simulator")
-    float LinearDamping = 0.05f;
+    float LinearDamping = 0.1f;
 
 	// 회전에 대한 저항 계수 (0.01 이면 초당 1% 감쇠)
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ballistic Physics Simulator")
-    float AngularDamping = 0.01f;
+    float AngularDamping = 0.1f;
 
 	// 바운스시 회전 속도 감쇠 조절 (0.7 이면 70% 유지됨)
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ballistic Physics Simulator")
@@ -323,8 +326,8 @@ public:
     float SimulationStepInterval = 0.033f; 
 
     // 축구공 반지름 : 약 11 cm
-    //UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ballistic Physics Simulator")
-    //float BallRadius = 11.0f;
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Ballistic Physics Simulator")
+    float SimulationBallRadius = 11.0f;
 
     UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category = "Ballistic Physics Simulator")
     float SimulationEndTime = 0.0f;
@@ -359,11 +362,11 @@ public:
 
 	// 접촉 지점 및 마찰에 의해 발생되는 회전력 튜닝
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Ballistic Physics Simulator")
-    float BounceToRotateMultiply = 1.f;
+    float BounceToRotateMultiply = 0.9f;
 
 	// 구르는 상태에서 접촉 지점 및 마찰에 의해 발생되는 회전력 튜닝 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Ballistic Physics Simulator")
-	float SlideToRotateMultiply = 10.f;
+	float SlideToRotateMultiply = 1.5f;
 
 	// 충돌시 최대 선형 임펄스 제한
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ballistic Physics Simulator")
@@ -398,6 +401,9 @@ public:
     // 슬라이딩 접촉 상태 확인용 내부 변수
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Ballistic Physics Simulator")
     FVector PreviousHitNormal;
+    
+    // 시뮬레이션 과정에서 SweepSingleByChannel 에서 사용되는 파라미터 (활용 사례: IgnoredActor 추가 등)
+    FCollisionQueryParams TraceParams;
 
     static constexpr int MaxAllowedSimulationStep = 1000;
     static constexpr float SplineTangentLengh = 50.f;        
