@@ -20,7 +20,7 @@ UBallSimulatorComponent::UBallSimulatorComponent() :
 	{
 		TraceParams.AddIgnoredActor(Owner);
 	}
-
+	TraceParams.MobilityType = EQueryMobilityType::Static;
 	PrimaryComponentTick.bCanEverTick = false;
 }
 
@@ -29,7 +29,6 @@ void UBallSimulatorComponent::BeginPlay()
 {
 	Super::BeginPlay();
 }
-
 
 void UBallSimulatorComponent::ContinueSimulation(const UObject* WorldContextObject, int32 InStepCount)
 {
